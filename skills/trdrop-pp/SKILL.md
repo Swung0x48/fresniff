@@ -112,6 +112,12 @@ python <scripts>/frametime_histogram.py <name>.csv --percent -o <name>_frametime
 trdrop-pp <video> --motion-video <name>_motion.mp4 -o <name>.csv 2> <name>.log
 ```
 
+`--resolution-video <name>_resolution.mp4` (implies `--resolution`) does the same for the render resolution:
+a copy of the video with what is measured drawn on it (the part for the pixel grid, the edge columns of a
+pan and their groups), three charts of what was collected up to the frame (pixel grid, pan contrast, stair
+steps) and the candidates so far. Use it when the user asks how the resolution was found. Both videos can
+be written in one run.
+
 `--motion-video` (implies `--motion`) also writes a copy of the video with the motion drawn on it: an arrow
 per tracked point, a red x where a match was rejected, and the values of every frame as text (new /
 duplicate, animation step, animation error, framerate, perceived smoothness). Use it when the user wants to

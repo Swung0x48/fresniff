@@ -235,36 +235,52 @@ public:
 
     std::unique_ptr<MotionVideoTarget> start_motion_video(size_t index, const std::string & path, double fps, std::string & reason) override
     {
+        std::vector<std::unique_ptr<MotionVideoTarget>> targets = start_videos(index, { path }, fps, reason);
+        return targets.empty() ? nullptr : std::move(targets.front());
+    }
+
+    //! all of them or none: a frame has its picture either on the GPU or in memory
+    std::vector<std::unique_ptr<MotionVideoTarget>> start_videos(size_t index, const std::vector<std::string> & paths, double fps, std::string & reason) override
+    {
         GpuVideo & gpu = _gpu_videos.at(index);
+        std::vector<std::unique_ptr<MotionVideoTarget>> targets;
+        if (paths.empty()) return targets;
         try
         {
+            if (gpu.active) throw std::logic_error("the videos of an input are started together");
             const AVFrame * frame = _videos.at(index).first_frame;
-            if (!frame) throw std::logic_error("the motion video has to be started before the first frame");            const cv::Size size = motion_picture_size(frame->width, frame->height);
-            // frames for the encoder on the device the frames are decoded on
-            gpu.frames = av_hwframe_ctx_alloc(_hw_device);
-            if (!gpu.frames) throw std::runtime_error("out of memory");
-            AVHWFramesContext * frames = reinterpret_cast<AVHWFramesContext *>(gpu.frames->data);
-            frames->format = AV_PIX_FMT_VULKAN;
-            frames->sw_format = AV_PIX_FMT_NV12;
-            frames->width = size.width;
-            frames->height = size.height;
-            const int result = av_hwframe_ctx_init(gpu.frames);
-            if (result < 0) throw std::runtime_error("no Vulkan frames for the video encoder: " + ffmpeg::error_string(result));
-            gpu.encoder = std::make_unique<ffmpeg::EncodedVideo>(path, size.width, size.height, fps, "h264_vulkan", gpu.frames);
+            if (!frame) throw std::logic_error("the motion video has to be started before the first frame");
+            const cv::Size size = motion_picture_size(frame->width, frame->height);
+            for (const std::string & path : paths)
+            {
+                gpu.streams.emplace_back();
+                GpuStream & stream = gpu.streams.back();
+                // frames for the encoder on the device the frames are decoded on
+                stream.frames = av_hwframe_ctx_alloc(_hw_device);
+                if (!stream.frames) throw std::runtime_error("out of memory");
+                AVHWFramesContext * frames = reinterpret_cast<AVHWFramesContext *>(stream.frames->data);
+                frames->format = AV_PIX_FMT_VULKAN;
+                frames->sw_format = AV_PIX_FMT_NV12;
+                frames->width = size.width;
+                frames->height = size.height;
+                const int result = av_hwframe_ctx_init(stream.frames);
+                if (result < 0) throw std::runtime_error("no Vulkan frames for the video encoder: " + ffmpeg::error_string(result));
+                stream.encoder = std::make_unique<ffmpeg::EncodedVideo>(path, size.width, size.height, fps, "h264_vulkan", stream.frames);
+            }
             gpu.width = static_cast<uint32_t>(size.width);
             gpu.height = static_cast<uint32_t>(size.height);
             gpu.row_words = (gpu.width + 3) / 4;
             gpu.picture_bytes = static_cast<VkDeviceSize>(gpu.row_words) * 4 * (gpu.height + gpu.height / 2);
             gpu.active = true;
-            return std::make_unique<GpuTarget>(*this, index);
+            for (size_t stream = 0; stream < paths.size(); ++stream) targets.push_back(std::make_unique<GpuTarget>(*this, index, stream));
+            return targets;
         }
         catch (const std::exception & e)
         {
             // e.g. the GPU can't encode H.264 with Vulkan Video
-            gpu.encoder.reset();
-            av_buffer_unref(&gpu.frames);
+            _release_streams(gpu);
             reason = e.what();
-            return nullptr;
+            return {};
         }
     }
 
@@ -356,6 +372,7 @@ public:
                 if (gpu.free_pictures.empty())
                 {
                     gpu.pictures.push_back(_create_buffer(gpu.picture_bytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, { VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0 }));
+                    gpu.picture_draws.push_back(0);
                     gpu.free_pictures.push_back(static_cast<int>(gpu.pictures.size()) - 1);
                 }
                 slot_video.picture = gpu.free_pictures.back();
@@ -885,6 +902,12 @@ private:
     };
 
     //! motion video of a video, drawn and encoded on the GPU
+    //! a video drawn on the GPU: its encoder and the frames the encoder is fed with
+    struct GpuStream {
+        std::unique_ptr<ffmpeg::EncodedVideo> encoder;
+        AVBufferRef * frames = nullptr;
+    };
+
     struct GpuVideo {
         bool active = false;
         uint32_t width = 0;
@@ -892,12 +915,13 @@ private:
         //! uints per row of a picture, and its size: NV12
         uint32_t row_words = 0;
         VkDeviceSize picture_bytes = 0;
-        std::unique_ptr<ffmpeg::EncodedVideo> encoder;
-        //! the frames the encoder is fed with
-        AVBufferRef * frames = nullptr;
+        //! the videos that are drawn on the pictures: every one of them draws every frame
+        std::vector<GpuStream> streams;
         //! pictures of the frames which wait for their values, and the ones not in use
         std::vector<Buffer> pictures;
         std::vector<int> free_pictures;
+        //! per picture: the videos that have drawn it; it is free once all have
+        std::vector<uint32_t> picture_draws;
     };
 
     //! a motion video frame being drawn
@@ -1314,9 +1338,10 @@ private:
 
     //! Motion video on the GPU: draws the scene on the picture a frame left on the GPU, into a frame of the
     //! encoder, and hands it to the encoder. Nothing but the scene is uploaded, nothing is read back.
-    void _draw(size_t index, int picture, const MotionVideoScene & scene)
+    void _draw(size_t index, size_t stream_index, int picture, const MotionVideoScene & scene)
     {
         GpuVideo & gpu = _gpu_videos.at(index);
+        GpuStream & stream = gpu.streams.at(stream_index);
         if (picture < 0 || picture >= static_cast<int>(gpu.pictures.size())) throw std::logic_error("motion video: the frame has no picture on the GPU");
         DrawSlot & slot = _draw_slots[_draws % kDrawSlots];
         if (slot.busy)
@@ -1355,7 +1380,7 @@ private:
 
         // a frame of the encoder: NV12, one image with two planes or an image per plane
         av_frame_unref(slot.frame);
-        const int allocated = av_hwframe_get_buffer(gpu.frames, slot.frame, 0);
+        const int allocated = av_hwframe_get_buffer(stream.frames, slot.frame, 0);
         if (allocated < 0) throw std::runtime_error("no frame for the video encoder (" + ffmpeg::error_string(allocated) + ")");
         AVVkFrame * vkf = reinterpret_cast<AVVkFrame *>(slot.frame->data[0]);
         const int images = image_count(vkf);
@@ -1472,28 +1497,45 @@ private:
         ++_draws;
 
         // the encoder waits for the frame itself
-        gpu.encoder->encode(slot.frame);
+        stream.encoder->encode(slot.frame);
         av_frame_unref(slot.frame);
-        gpu.free_pictures.push_back(picture);
+        // the picture is free once every video of the input has drawn it
+        uint32_t & draws = gpu.picture_draws.at(static_cast<size_t>(picture));
+        if (++draws >= gpu.streams.size())
+        {
+            draws = 0;
+            gpu.free_pictures.push_back(picture);
+        }
     }
 
-    void _finish_video(size_t index)
+    void _finish_video(size_t index, size_t stream_index)
     {
-        GpuVideo & gpu = _gpu_videos.at(index);
-        if (gpu.encoder) gpu.encoder->finish();
+        GpuStream & stream = _gpu_videos.at(index).streams.at(stream_index);
+        if (stream.encoder) stream.encoder->finish();
+    }
+
+    static void _release_streams(GpuVideo & gpu)
+    {
+        for (GpuStream & stream : gpu.streams)
+        {
+            stream.encoder.reset();
+            av_buffer_unref(&stream.frames);
+        }
+        gpu.streams.clear();
     }
 
     //! the motion video of one of the videos, drawn and encoded by this pipeline
     class GpuTarget final : public MotionVideoTarget {
     public:
-        GpuTarget(VulkanVideoPipeline & pipeline, size_t index) : _pipeline(pipeline), _index(index) { }
-        std::string description() const override { return _pipeline._gpu_videos[_index].encoder->encoder_name() + ", drawn on the GPU"; }
-        void write(const MotionDetail & detail, const MotionVideoScene & scene) override { _pipeline._draw(_index, detail.gpu_picture, scene); }
-        void finish() override { _pipeline._finish_video(_index); }
+        GpuTarget(VulkanVideoPipeline & pipeline, size_t index, size_t stream) : _pipeline(pipeline), _index(index), _stream(stream) { }
+        std::string description() const override { return _pipeline._gpu_videos[_index].streams[_stream].encoder->encoder_name() + ", drawn on the GPU"; }
+        void write(const MotionDetail & detail, const MotionVideoScene & scene) override { _pipeline._draw(_index, _stream, detail.gpu_picture, scene); }
+        void finish() override { _pipeline._finish_video(_index, _stream); }
 
     private:
         VulkanVideoPipeline & _pipeline;
         size_t _index;
+        size_t _stream;
     };
 
     static void _check_frame(const AVFrame * frame, const ffmpeg::VideoDecoder & decoder)
@@ -1827,11 +1869,7 @@ private:
     {
         // the encoders of the motion videos and their frames use the device as well
         for (DrawSlot & slot : _draw_slots) av_frame_free(&slot.frame);
-        for (GpuVideo & gpu : _gpu_videos)
-        {
-            gpu.encoder.reset();
-            av_buffer_unref(&gpu.frames);
-        }
+        for (GpuVideo & gpu : _gpu_videos) _release_streams(gpu);
         // our Vulkan objects first, then the frames and decoders, the device last
         if (_device && _fn.vkDeviceWaitIdle)
         {

@@ -53,6 +53,7 @@ add_executable(trdrop-pp
     src/motion.cpp
     src/motion_video.cpp
     src/resolution.cpp
+    src/resolution_video.cpp
     src/video_writer.cpp
 )
 target_include_directories(trdrop-pp PRIVATE src)

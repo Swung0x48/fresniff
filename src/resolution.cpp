@@ -524,10 +524,21 @@ void ResolutionAnalyzer::push(const ResolutionFrame * frame, const MotionField &
     const ResolutionPan pan = usable ? resolution_pan(field, _layout.width, _layout.height) : ResolutionPan();
     _pans.push_front(pan.valid ? pan.dx : std::numeric_limits<float>::quiet_NaN());
     if (_pans.size() > 16 + kPanRun) _pans.pop_back();
+    _last = FrameState();
+    _last.pan = pan;
     if (!usable) return;
+    _last.measured = true;
     _add_lattice(*frame);
 
-    if (!frame->edges || !resolution_pan_usable(pan) || _pans.size() < kPanRun) return;
+    if (!resolution_pan_usable(pan))
+    {
+        const float speed = std::abs(pan.dx);
+        _last.edges = !pan.valid ? FrameState::NoMotion : speed < kMinPan ? FrameState::TooSlow
+                    : speed > kMaxPan ? FrameState::TooFast : FrameState::Vertical;
+        return;
+    }
+    _last.edges = FrameState::Unsteady;
+    if (!frame->edges || _pans.size() < kPanRun) return;
     // the pan kept its direction
     size_t moving = 0;
     for (size_t k = 0; k < kPanRun; ++k)
@@ -539,6 +550,7 @@ void ResolutionAnalyzer::push(const ResolutionFrame * frame, const MotionField &
         ++moving;
     }
     if (moving < kPanRunMoving) return;
+    _last.edges = FrameState::Used;
 
     // when a column entered: the summed motion of the last frames reaches it. travelled[k]: the last k + 1 frames
     float travelled[16];
@@ -552,6 +564,7 @@ void ResolutionAnalyzer::push(const ResolutionFrame * frame, const MotionField &
         travelled[k] = sum;
     }
     const float bounds[kResolutionAges + 1] = { 0.0f, 0.5f * travelled[0], travelled[0], travelled[1], travelled[3], travelled[7], travelled[15] };
+    std::copy(bounds, bounds + kResolutionAges + 1, _last.bounds.begin());
     const size_t direction = pan.dx > 0.0f ? 0 : 1;
     const int edge = _layout.edge;
     // entering at the left edge if the picture moves to the right
@@ -560,6 +573,7 @@ void ResolutionAnalyzer::push(const ResolutionFrame * frame, const MotionField &
     for (int age = 0; age < kResolutionAges; ++age)
     {
         if (!(bounds[age + 1] <= static_cast<float>(edge))) break;
+        _last.ages = age + 1;
         for (int column = 0; column < edge; ++column)
         {
             const float position = static_cast<float>(column) + 0.5f;
@@ -579,11 +593,21 @@ void ResolutionAnalyzer::push(const ResolutionFrame * frame, const MotionField &
     if (bands > 0 && frame->edge_stairs.size() == static_cast<size_t>(2 * edge) * static_cast<size_t>(bands))
     {
         const int strip = std::min(edge, std::max(kStairMinStrip, static_cast<int>(std::lround(kStairFrames * std::abs(pan.dx)))));
+        _last.stair_strip = strip;
         const uint16_t * left = frame->edge_stairs.data();
         const uint16_t * right = left + static_cast<size_t>(edge) * static_cast<size_t>(bands);
         count_stairs(direction == 0 ? left : right, bands, strip, _stairs[0]);
         count_stairs(direction == 0 ? right : left, bands, strip, _stairs[1]);
     }
+}
+
+void ResolutionAnalyzer::grid_strengths(std::vector<double> & columns, std::vector<double> & rows) const
+{
+    columns.clear();
+    rows.clear();
+    if (_lattice_frames == 0 || _grid_x.spectrum.empty() || _grid_y.spectrum.empty()) return;
+    columns = relative_strengths(_grid_x.spectrum);
+    rows = relative_strengths(_grid_y.spectrum);
 }
 
 ResolutionAnalyzer::Summary ResolutionAnalyzer::summary() const

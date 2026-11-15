@@ -34,6 +34,18 @@ std::unique_ptr<MotionVideoTarget> FramePipeline::start_motion_video(size_t, con
     return nullptr;
 }
 
+std::vector<std::unique_ptr<MotionVideoTarget>> FramePipeline::start_videos(size_t index, const std::vector<std::string> & paths, double fps, std::string & reason)
+{
+    std::vector<std::unique_ptr<MotionVideoTarget>> targets;
+    reason.clear();
+    if (paths.size() == 1)
+    {
+        std::unique_ptr<MotionVideoTarget> target = start_motion_video(index, paths.front(), fps, reason);
+        if (target) targets.push_back(std::move(target));
+    }
+    return targets;
+}
+
 void FramePipeline::enable_resolution()
 {
     throw std::runtime_error("the resolution analysis is not available with " + description());

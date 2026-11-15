@@ -97,6 +97,8 @@ struct Options {
     std::vector<std::string> resolution_data;
     //! per input video: file for a copy of the video with its motion drawn on it (empty: none)
     std::vector<std::string> motion_videos;
+    //! per input video: file for a copy of the video that shows how the render resolution is estimated (empty: none)
+    std::vector<std::string> resolution_videos;
     //! the arrows of the motion video are drawn this many times longer than the motion
     double arrow_scale = 1.0;
     //! called while the videos are analyzed (frames read, progress 0 - 1 or < 0 if unknown), the analysis

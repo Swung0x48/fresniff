@@ -24,6 +24,7 @@
 #include "frame_analyzer.h"
 #include "frame_pipeline.h"
 #include "motion_video.h"
+#include "resolution_video.h"
 #include "trdrop_library.h"
 
 #ifdef _WIN32
@@ -141,6 +142,13 @@ resolution (render resolution of an upscaled picture):
                                spectra of the pixel grid and of the picture entering / leaving
                                in a pan (comma separated list, one file per video; plot it
                                with scripts/resolution.py to judge a recording yourself)
+      --resolution-video <file>
+                               --resolution, and write a copy of the video that shows how the
+                               estimate is made, frame by frame: what is measured in the
+                               picture (the part for the pixel grid, the edge columns of a pan
+                               and their groups), the three traces as charts of what was
+                               collected up to the frame, and what they say so far. Size,
+                               codec and files as for --motion-video
       --resolution-rows <a-b>  --resolution, and the part of the height, in percent from the top,
                                whose edge columns are measured in a pan (default: 9-74; one
                                value for all videos or comma separated per video). It should
@@ -306,6 +314,12 @@ bool parse_arguments(int argc, char ** argv, Options & options)
             options.resolution = true;
             options.resolution_data = split(next(), ',');
         }
+        else if (arg == "--resolution-video")
+        {
+            options.motion = true;
+            options.resolution = true;
+            options.resolution_videos = split(next(), ',');
+        }
         else if (arg == "--arrow-scale")
         {
             options.arrow_scale = parse_double(next(), arg);
@@ -386,6 +400,10 @@ bool parse_arguments(int argc, char ** argv, Options & options)
     if (options.resolution_data.size() > options.inputs.size())
     {
         throw std::invalid_argument("--resolution-data: more files than videos");
+    }
+    if (options.resolution_videos.size() > options.inputs.size())
+    {
+        throw std::invalid_argument("--resolution-video: more files than videos");
     }
 
     apply_per_video(pixel_diff, options.videos, [](VideoOptions & v, const std::string & text) {
@@ -778,7 +796,7 @@ int run(const Options & options)
     std::unique_ptr<FramePipeline> pipeline_owner = make_pipeline(options);
     FramePipeline & pipeline = *pipeline_owner;
     if (options.motion) pipeline.enable_motion();
-    if (!options.motion_videos.empty()) pipeline.enable_motion_detail();
+    if (!options.motion_videos.empty() || !options.resolution_videos.empty()) pipeline.enable_motion_detail();
     if (options.resolution) pipeline.enable_resolution();
     const FramePipeline & sources = pipeline;
     const size_t video_count = sources.count();
@@ -839,24 +857,48 @@ int run(const Options & options)
 
     if (!options.quiet) std::fprintf(stderr, "backend: %s\n", pipeline.description().c_str());
 
-    // --motion-video: one writer per video that has a file
+    // --motion-video, --resolution-video: a writer per video that has a file
     std::vector<std::unique_ptr<MotionVideo>> motion_videos(video_count);
-    for (size_t i = 0; i < options.motion_videos.size(); ++i)
+    std::vector<std::unique_ptr<ResolutionVideo>> resolution_videos(video_count);
+    for (size_t i = 0; i < video_count; ++i)
     {
-        if (options.motion_videos[i].empty()) continue;
-        // drawn and encoded where the frames are if the pipeline can, otherwise on the CPU
+        const std::string motion_path = i < options.motion_videos.size() ? options.motion_videos[i] : std::string();
+        const std::string resolution_path = i < options.resolution_videos.size() ? options.resolution_videos[i] : std::string();
+        std::vector<std::string> paths;
+        if (!motion_path.empty()) paths.push_back(motion_path);
+        if (!resolution_path.empty()) paths.push_back(resolution_path);
+        if (paths.empty()) continue;
+        if (motion_path == resolution_path) throw std::invalid_argument("--motion-video and --resolution-video: the same file for both");
+        // drawn and encoded where the frames are if the pipeline can do that for all of them, otherwise on the CPU
         std::string reason;
-        std::unique_ptr<MotionVideoTarget> target = pipeline.start_motion_video(i, options.motion_videos[i], recorded_framerates[i], reason);
-        if (!target && !reason.empty() && !options.quiet)
+        std::vector<std::unique_ptr<MotionVideoTarget>> targets = pipeline.start_videos(i, paths, recorded_framerates[i], reason);
+        if (targets.size() != paths.size()) targets.clear();
+        if (targets.empty() && !reason.empty() && !options.quiet)
         {
-            std::fprintf(stderr, "trdrop-pp: drawing the motion video on the CPU (%s)\n", reason.c_str());
+            std::fprintf(stderr, "trdrop-pp: drawing the %s on the CPU (%s)\n", paths.size() > 1 ? "videos" : !motion_path.empty() ? "motion video" : "resolution video"
+                       , reason.c_str());
         }
-        motion_videos[i] = std::make_unique<MotionVideo>(options.motion_videos[i], sources.frame_width(i), sources.frame_height(i)
-                                                       , recorded_framerates[i], options.arrow_scale, std::move(target));
-        if (!options.quiet)
+        size_t next_target = 0;
+        auto take_target = [&]() { return targets.empty() ? nullptr : std::move(targets[next_target++]); };
+        if (!motion_path.empty())
         {
-            std::fprintf(stderr, "v%zu motion video: %s (%dx%d, %s)\n", i + 1, motion_videos[i]->path().c_str()
-                       , motion_videos[i]->size().width, motion_videos[i]->size().height, motion_videos[i]->description().c_str());
+            motion_videos[i] = std::make_unique<MotionVideo>(motion_path, sources.frame_width(i), sources.frame_height(i)
+                                                           , recorded_framerates[i], options.arrow_scale, take_target());
+            if (!options.quiet)
+            {
+                std::fprintf(stderr, "v%zu motion video: %s (%dx%d, %s)\n", i + 1, motion_videos[i]->path().c_str()
+                           , motion_videos[i]->size().width, motion_videos[i]->size().height, motion_videos[i]->description().c_str());
+            }
+        }
+        if (!resolution_path.empty())
+        {
+            resolution_videos[i] = std::make_unique<ResolutionVideo>(resolution_path, sources.frame_width(i), sources.frame_height(i)
+                                                                   , recorded_framerates[i], take_target());
+            if (!options.quiet)
+            {
+                std::fprintf(stderr, "v%zu resolution video: %s (%dx%d, %s)\n", i + 1, resolution_videos[i]->path().c_str()
+                           , resolution_videos[i]->size().width, resolution_videos[i]->size().height, resolution_videos[i]->description().c_str());
+            }
         }
     }
 
@@ -990,6 +1032,8 @@ int run(const Options & options)
         row.details.resize(video_count);
         for (size_t i = 0; i < video_count; ++i)
         {
+            // the picture of the frame, for the videos that are drawn on it
+            const std::shared_ptr<MotionDetail> detail = std::move(row_counts[i].detail);
             if (motion_videos[i])
             {
                 MotionVideoFrame & values = row.values[i];
@@ -998,7 +1042,7 @@ int run(const Options & options)
                 values.duplicate = values.compared && differences[i] == 0.0;
                 values.torn = values.compared && differences[i] > 0.0 && differences[i] < 1.0;
                 values.framerate = framerates[i];
-                row.details[i] = std::move(row_counts[i].detail);
+                row.details[i] = detail;
             }
             std::string & column = row.columns[i];
             column = ',';
@@ -1012,6 +1056,11 @@ int run(const Options & options)
                                        , analyzer.has_difference() ? analyzer.last_changed_shares()[i] : 1.0);
             }
             if (options.resolution) resolution_analyzers[i].push(row_counts[i].resolution.get(), row_counts[i].motion);
+            // the resolution video shows the frame with what was collected up to it: it doesn't wait for the motion
+            if (resolution_videos[i] && detail)
+            {
+                resolution_videos[i]->write(frame, analyzer.has_difference() && differences[i] == 0.0, resolution_analyzers[i], *detail);
+            }
 
             if (!analyzer.has_difference()) continue;
             VideoStats & s = stats[i];
@@ -1065,6 +1114,10 @@ int run(const Options & options)
     for (MotionAnalyzer & motion : motion_analyzers) motion.finish();
     write_ready_rows();
     for (const std::unique_ptr<MotionVideo> & video : motion_videos)
+    {
+        if (video) video->finish();
+    }
+    for (const std::unique_ptr<ResolutionVideo> & video : resolution_videos)
     {
         if (video) video->finish();
     }

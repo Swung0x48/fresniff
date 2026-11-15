@@ -259,6 +259,41 @@ public:
     //! frequency of a bin of the edge spectra, cycles per pixel
     static double bin_frequency(int bin) { return static_cast<double>(kResolutionFirstBin + bin) / kResolutionSegment; }
 
+    //! what push() did with the last frame (for the resolution video)
+    struct FrameState {
+        //! the frame was measured: it counts for the pixel grid
+        bool measured = false;
+        ResolutionPan pan;
+        //! whether its edge columns were counted as the picture entering / leaving in a pan, or why not
+        enum Edges {
+            NotMeasured,
+            //! the motion of the frame is not known
+            NoMotion,
+            //! the picture moves less / more per frame than a pan that is used, or it moves up or down as well
+            TooSlow,
+            TooFast,
+            Vertical,
+            //! the last frames didn't all move this way
+            Unsteady,
+            Used,
+        } edges = NotMeasured;
+        //! Used: the groups of edge columns that were counted (see kResolutionAgeNames), group a holds the columns
+        //! whose distance from the edge the picture enters at is bounds[a] ... bounds[a + 1], in pixels
+        int ages = 0;
+        std::array<float, kResolutionAges + 1> bounds {};
+        //! ... and the columns from that edge whose stair steps were counted (0: none)
+        int stair_strip = 0;
+    };
+    const FrameState & last_frame() const { return _last; }
+    //! the layout of the frames that are measured (width 0: no frame yet)
+    const ResolutionLayout & layout() const { return _layout; }
+    //! frames the pixel grid was measured in so far
+    long long grid_frames() const { return _lattice_frames; }
+    //! the pixel grid so far, as the summary reads it: per bin how many times the background the spectrum of the
+    //! columns / rows is. Bin k of the columns is k / layout().width cycles per pixel, of the rows k /
+    //! layout().lattice_rows. Empty: no frame yet
+    void grid_strengths(std::vector<double> & columns, std::vector<double> & rows) const;
+
 private:
     //! the pixel grid of one axis
     struct LatticeAxis {
@@ -275,6 +310,7 @@ private:
     double _share(const LatticeAxis & axis, double bin) const;
 
     ResolutionLayout _layout;
+    FrameState _last;
     bool _lossless = false;
     long long _frames = 0;
     LatticeAxis _grid_x;

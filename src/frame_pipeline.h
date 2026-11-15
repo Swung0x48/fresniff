@@ -41,6 +41,11 @@ public:
     //! the GPU): its frames get MotionDetail::gpu_picture instead of a picture. nullptr if the pipeline doesn't
     //! do that or can't here, `reason` then says why (empty: it never does). Before the first submit_next()
     virtual std::unique_ptr<MotionVideoTarget> start_motion_video(size_t index, const std::string & path, double fps, std::string & reason);
+    //! The same for all the videos that are drawn on the frames of video `index` (the motion video, the resolution
+    //! video): a target per path, or none at all if not every one of them can be drawn there - the pictures of an
+    //! input are either kept in memory or left on the GPU. Called once per input. A pipeline that only has
+    //! start_motion_video() draws a single video there
+    virtual std::vector<std::unique_ptr<MotionVideoTarget>> start_videos(size_t index, const std::vector<std::string> & paths, double fps, std::string & reason);
 
     //! main thread time spent in the comparison (without decoding), < 0 if decoding and
     //! comparison can't be separated (both run on the GPU)

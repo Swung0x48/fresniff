@@ -45,6 +45,7 @@ trdrop-pp [options] <video> [<video> [<video>]]
 | `--resolution-rows <a-b>` | `--resolution`, and the part of the height (percent, from the top) whose edge columns are measured in a pan (default `9-74`) |
 | `--lossless` | the videos were recorded lossless and never coded lossy before, whatever the codec: a duplicate frame is [identical](#lossy-recordings) (`--pixel-diff 0 --tolerance-pct 0`), and `--resolution` [reads the peaks on the block grid of encoders](#render-resolution---resolution) (25% and 75%) as a pixel grid |
 | `--resolution-data <file>` | `--resolution`, and write [what the estimate is made of](#judging-a-recording-yourself---resolution-data) as CSV (one file per input video, comma separated) |
+| `--resolution-video <file>` | `--resolution`, and write a [copy of the video that shows how the estimate is made](#resolution-video---resolution-video) (`.mp4`, `.mkv`, `.mov`; one file per input video, comma separated) |
 | `--no-summary` | don't print the summary to stderr |
 | `-q, --quiet` | no progress / input info on stderr |
 | `--vkdevice <n>` | Vulkan device to use (default: the first discrete GPU, otherwise device `0`). Vulkan builds only |
@@ -803,6 +804,52 @@ The file starts with lines `# key: value` (video, width, height, frames, the pan
 | `pan_entering`, `pan_leaving` | mean power of a column of the entering / leaving edge, per `direction` (`right`, `left`, `both`: where the picture moves) and `age` (0 - 5, the newest first) |
 | `pan_contrast` | root of entering / leaving, 1 at the first frequency |
 | `stairs_entering`, `stairs_leaving` | number of stair steps; the `frequency` column holds their height in pixels, 1 - 8 (8: or more) |
+
+### Resolution video (`--resolution-video`)
+
+```
+trdrop-pp capture.mkv --resolution-video capture_resolution.mp4 -o capture.csv
+```
+
+writes a copy of the video that shows how the estimate is made, frame by frame. It implies `--resolution`.
+
+On the picture:
+
+| | |
+| --- | --- |
+| dashed line | the pixel grid is measured above it (the top 88% of the height) |
+| boxes at the left and the right edge | the edge columns of the pan: 256 columns each (an eighth of the width at most), the rows of `--resolution-rows`. Grey: this frame is not used as a pan |
+| yellow box, `entering` | a frame of a pan: the picture enters at this edge. The colored bars and lines are the groups of columns, by the frame they entered with (red: this frame; blue: 8 - 15 frames ago) |
+| white box, `leaving` | the other edge, the same columns: what the entering ones are compared with |
+| arrow | how far the picture moved in this frame, drawn 4 times as long |
+| white line below the box, `stair steps` | the columns whose stair steps are counted |
+
+Three charts at the top show what was collected up to the frame. They are the charts of
+[`scripts/resolution.py`](#judging-a-recording-yourself---resolution-data), growing with the video:
+
+| chart | shows |
+| --- | --- |
+| pixel grid | the spectrum of the columns (blue) and the rows (orange), times its background. A logarithmic axis, the line at 3x is the threshold. The strongest peak that counts is marked |
+| pan | the contrast of the entering columns against the leaving ones, one curve per group. A dot marks where the newest group is down to one half |
+| stair steps | the share of the steps by their height, entering (yellow) and leaving (grey) |
+
+The table at the bottom has the numbers, updated with the charts every 6 frames:
+
+| row | value | what it is | render scale |
+| --- | --- | --- | --- |
+| `frame` | its number | `pan right 32.5 px`, or why it is no pan: `still`, `slow`, `fast`, `up / down`, `not steady`; `duplicate` | |
+| `grid` | frequency of the peak | times the background, columns / rows | the two scales of the peak |
+| `pan` | where the newest columns have half the contrast | `half contrast`, or the lowest / highest contrast | twice that frequency |
+| `stairs` | height of a rendered pixel | share of the steps of 2 pixels and more, entering / leaving | 1 / height |
+| `result` | the candidates with their confidence | | |
+
+A duplicate frame keeps the boxes of the frame before.
+
+Size, framerate and files are as for the [motion video](#motion-video---motion-video): 4K becomes 1080p. At
+that size the picture itself doesn't show a stair step of 3 pixels; the charts do. A picture less than
+about 1000 pixels wide has no room for the charts: it gets the boxes and the text only. Both videos can be
+written in one run. The analysis is the same with and without the option. On the GPU path the video costs
+next to nothing, on the CPU path as much as the motion video.
 
 ## Plotting
 
