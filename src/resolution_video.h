@@ -15,7 +15,7 @@ namespace trdrop {
 
 //! Writes a copy of a video that shows how its render resolution is estimated (--resolution-video), frame by
 //! frame, at the resolution the motion is measured at:
-//!   on the picture   the part the pixel grid is measured in (above a line), the columns next to the left and
+//!   on the picture   the part the pixel grid is measured in (dashed lines), the columns next to the left and
 //!                    the right edge whose spectra are compared in a pan, and in a frame of a pan: which edge the
 //!                    picture enters at, the groups of columns by the frame they entered with, the strip whose
 //!                    stair steps are counted and how far the picture moved

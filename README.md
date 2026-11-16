@@ -42,7 +42,8 @@ trdrop-pp [options] <video> [<video> [<video>]]
 | `--arrow-scale <x>` | draw the arrows of the motion video x times longer (default `1`) |
 | `--async-capture` | `--motion` for a [capture that didn't run in step with the game's output](#captures-that-are-not-in-step---async-capture): pictures recorded an interval late don't count as animation error, pictures the capture lost are counted in |
 | `--resolution` | `--motion`, and estimate the [render resolution](#render-resolution---resolution) behind temporally upscaled video (DLSS, FSR, XeSS, TSR, PSSR), from the frames of the clip |
-| `--resolution-rows <a-b>` | `--resolution`, and the part of the height (percent, from the top) whose edge columns are measured in a pan (default `9-74`) |
+| `--resolution-grid-rows <a-b>` | `--resolution`, and the part of the height (percent, from the top) the pixel grid is measured in (default `0-88`) |
+| `--resolution-pan-rows <a-b>` | `--resolution`, and the part of the height whose edge columns are measured in a pan, for the entering picture and the stair steps (default `9-74`) |
 | `--lossless` | the videos were recorded lossless and never coded lossy before, whatever the codec: a duplicate frame is [identical](#lossy-recordings) (`--pixel-diff 0 --tolerance-pct 0`), and `--resolution` [reads the peaks on the block grid of encoders](#render-resolution---resolution) (25% and 75%) as a pixel grid |
 | `--resolution-data <file>` | `--resolution`, and write [what the estimate is made of](#judging-a-recording-yourself---resolution-data) as CSV (one file per input video, comma separated) |
 | `--resolution-video <file>` | `--resolution`, and write a [copy of the video that shows how the estimate is made](#resolution-video---resolution-video) (`.mp4`, `.mkv`, `.mov`; one file per input video, comma separated) |
@@ -53,7 +54,7 @@ trdrop-pp [options] <video> [<video> [<video>]]
 | `--list-vkdevices` | list the Vulkan devices with their `--vkdevice` index and exit. Vulkan builds only |
 | `--decode <mode>` | `auto` (default: the fastest), `vulkan`, `ffmpeg` or `opencv`, see [GPU decoding](#ffmpeg--vulkan-video-gpu-decoding). FFmpeg builds only |
 
-`--pixel-diff`, `--tolerance-pct`, `--dismiss-tear-pct`, `--source-fps` and `--resolution-rows` take a single value for all videos or
+`--pixel-diff`, `--tolerance-pct`, `--dismiss-tear-pct`, `--source-fps`, `--resolution-grid-rows` and `--resolution-pan-rows` take a single value for all videos or
 comma separated values per video, e.g. `--pixel-diff 0,5,0`.
 
 Only the CSV is written to stdout, progress / input info / summary go to stderr, so the output
@@ -499,21 +500,21 @@ v1 resolution: candidate 2: 2560x1440 (66.7% of 3840x2160) - low confidence: the
 
 The CSV is the same with and without the option.
 
-The confidence is a level of the rules below, not a probability - 29 recordings with a known setting are too
+The confidence is a level of the rules below, not a probability - 37 recordings with a known setting are too
 few to count one:
 
 | confidence | what was found |
 | --- | --- |
 | high | a pixel grid in the columns and in the rows, and one of its two scales is picked: by the pan (the other one is at least 1.2 times further, as a ratio, from what the pan reads) or by the stair steps of the entering picture (their height fits it) |
-| medium | a pixel grid in the columns and in the rows. Nothing tells its two scales apart: they share a line (`1280x720 (33.3% of 3840x2160) or 2560x1440 (66.7%)`). With `--lossless`: the scale its second harmonic picks (below). Or the pan shows an upward fan (below): the larger scale. Without a grid: the peak at 0.5 cycles per pixel together with stair steps of 2 pixels |
-| low | the scale of a grid the pan, the stair steps or the harmonic speak against; the smaller scale of a grid with an upward fan; a second, weaker grid; a grid that only the columns or only the rows have; the peak at 0.5 cycles per pixel (50%); the stair steps alone; the pan alone |
+| medium | a pixel grid in the columns and in the rows. Nothing tells its two scales apart: they share a line (`1280x720 (33.3% of 3840x2160) or 2560x1440 (66.7%)`). Or the peak of the newest columns of the pan picks one (below). With `--lossless`: the scale its second harmonic picks (below). Or the pan shows an upward fan (below): the larger scale. Without a grid: the peak at 0.5 cycles per pixel together with stair steps of 2 pixels |
+| low | the scale of a grid the pan, the stair steps, the peak of the newest columns or the harmonic speak against; the smaller scale of a grid with an upward fan; a second, weaker grid; a grid that only the columns or only the rows have (the peak of the newest columns puts one of its scales first); the peak at 0.5 cycles per pixel (50%); the stair steps alone; the pan alone |
 
 `no candidate` means that no trace was found, not that the picture is native: see the limits.
 
 1. Pixel grid. In a picture that was scaled up, how much a pixel differs from its neighbours depends on where it
    lies between two source pixels, and that repeats with the source sampling rate. Per frame the mean
-   `|p[x-1] - 2 p[x] + p[x+1]|` of every column (and the same of every row; without the lowest 12% of the
-   picture, where overlays tend to be) is taken, the slow variation removed, and the spectra of these profiles
+   `|p[x-1] - 2 p[x] + p[x+1]|` of every column (and the same of every row; in the top 88% of the
+   picture - overlays tend to be at the bottom, `--resolution-grid-rows` sets another part) is taken, the slow variation removed, and the spectra of these profiles
    are added up over the video. A picture rendered at r times the output resolution has a peak at r cycles per
    pixel, folded into 0 - 0.5: 33% and 67% both give 0.333, 59% and 41% give 0.41. It counts if the columns
    and the rows both have it 3 times above the background around it. The position is sharp - 1 / 3840 of a
@@ -538,14 +539,15 @@ few to count one:
    pixels are less than 2 output pixels apart and it is near a sine. At 0.45 of the grid's strength or more in
    both axes the smaller scale goes first, at 0.35 or less in both the larger one, with medium confidence -
    measured: 25% 0.56 / 1.00 (columns / rows), 75% 0.12 / 0.19, both lossless; 66 - 80% 0.08 - 0.31 (four lossy
-   recordings). It is not used where the harmonic falls on the grid itself (33% and 67%: 2 / 3 folds to 1 / 3)
-   and ranks after the pan and the stair steps, before the upward fan.
+   recordings). It is not used where the harmonic lies within 0.05 cycles per pixel of the grid itself (near
+   33% and 67%: 2 / 3 folds to 1 / 3; a grid at 0.3396 had its harmonic at 0.3208) and ranks after the pan,
+   the stair steps and the peak of the newest columns, before the upward fan.
 2. The picture that enters at the edge of a pan. A temporal upscaler has no earlier frames for the picture that
    enters at one edge while the camera pans: it is what a single rendered frame holds, nothing finer than the
    render resolution. The vertical spectrum (the motion blur of a horizontal pan is horizontal) of up to 256
    columns next to that edge is compared with the same columns of the other edge, where the picture leaves
    after it crossed the screen. The columns are measured between 9% and 74% of the height - a guess at where a
-   HUD doesn't touch the left and the right edge, made for one game; `--resolution-rows 20-60` sets another part. The columns are grouped by when they entered - the summed motion of the
+   HUD doesn't touch the left and the right edge, made for one game; `--resolution-pan-rows 20-60` sets another part. The columns are grouped by when they entered - the summed motion of the
    frames before reaches them - and the contrast of each group is the root of the ratio of the two spectra,
    with the coarsest detail (0.047 cycles per pixel) as 1. Where the contrast of the newest columns (the outer
    half of what entered with the frame) is down to one half is read as what a single frame resolves: half its
@@ -556,10 +558,17 @@ few to count one:
    fan. So the direction of the fan doesn't tell whose upscaler it is: DLSS at 33% gave a downward one, DLSS 4
    at 50% neither, DLSS 4.5 at 50% an upward one. The upward fan counts if the newest columns reach 1.25 at
    some frequency, the oldest columns measured (2 - 3 frames old at least) are back to half of that excess
-   there, and both directions of the pan have frames. Its shape doesn't give the scale -
-   where it peaks follows the scale within recordings of one place (0.40 times the scale in one, 0.60 in
-   another) - but in all four recordings with such a fan and a pixel grid the larger scale of the grid was
-   the true one, so that one goes first, with medium confidence.
+   there, and both directions of the pan have frames.
+   Where the newest columns peak follows the render scale: at 0.40 - 0.56 of it for TSR (25% to 75%) and 0.40
+   for FSR 3 (50% to 80%), 0.57 - 0.60 for FSR 2.1 and "NXSR". That is too loose to read the scale from, but
+   enough to tell the two scales of a grid apart: the peak (a parabola through its bin) at 0.65 of the smaller
+   scale or below picks the smaller one, at 0.35 of the larger one or above the larger one, with medium
+   confidence - for 33% / 67% 0.22 or below against 0.23 or above. It is read per direction of the pan (15
+   frames each), counts if the peak reaches 1.25 and is not in the last bin (0.469 cycles per pixel; XeSS at
+   33% rose to the end of the range), and both directions must pick the same scale. Near 50% the two ranges
+   overlap and it decides nothing. The rule was written down before the sixth round below was run, and it
+   ranks after the pan and the stair steps. Without it, in all four earlier recordings with an upward fan and
+   a pixel grid the larger scale was the true one, so that one goes first, with medium confidence.
    A frame counts if the picture moves by 4 - 64 pixels (where it enters; a camera that turns moves the edges
    up to twice as fast as the middle) with little vertical motion, and if no frame of the last 20 moved the
    other way and 15 of them moved this way - then what leaves at the other edge has been on the screen for a
@@ -683,9 +692,27 @@ render grid. The recording set to 25% has no grid at 0.25 but a peak at 0.5 and 
 at 50%, like the earlier ones set below 50% in this game. The one at 25% did render at 25% - why one setting
 took and the other didn't is not known.
 
+A sixth round, TSR in the same game set with `r.ScreenPercentage` (the menu didn't take settings below 50%),
+lossless, analyzed before the settings were known. The rule for the peak of the newest columns was written
+down before the runs; "then" is the program without it.
+
+| setting | pixel grid; its harmonic | newest columns peak at (right / left) | the rule says | then | now |
+| --- | --- | --- | --- | --- | --- |
+| 25% | 0.2500, 10.5x / 5.8x; 0.68 / 0.86 of it | 0.139 / 0.138 | 25% (0.16 or below) | 960x540 medium, from the harmonic - right | 960x540 medium - right |
+| 75% | 0.2500, 26.7x / 15.4x; 0.13 / 0.16 | 0.302 / 0.308 | 75% (0.26 or above) | 2880x1620 medium, from the harmonic - right | 2880x1620 medium - right |
+| 50% | none (1.5x); at 0.5 15.2x / 11.9x | 0.259 / 0.294 | - | 1920x1080 medium (stair steps of 2.1 pixels) - right | the same |
+| 33% | columns only: 0.3396 4.0x, 0.3302 3.8x; rows 2.3x | 0.190 / 0.162 | 33% (0.22 or below) | 34% or 66%, 33% or 67%, low | 1304x734 (34%) first, low - right |
+| 66% | 0.3396, 17.6x / 12.1x | 0.268 / 0.271 | 67% (0.23 or above) | 2536x1426 medium, from a harmonic 0.02 from the grid | 2536x1426 medium - right |
+
+The peak / scale was 0.55, 0.41, 0.55, 0.53 and 0.41. The 33% recording has few stair steps (26), but 22 of
+them are 3 pixels high. Run again over all recordings, the rule changed the order of no grid that was right
+before: it decides the same for TSR at 72%, FSR 3 at 66%, 72% and 80% (which the upward fan had put larger
+first) and for TSR at 25% and 75% (the harmonic); for DLSS and XeSS it doesn't read (no peak inside the range,
+or one direction only).
+
 Where a grid was found, in all rounds, it was at the true scale. Of its two scales the larger one was the
-true one in seven recordings, the smaller one in five: the two of DLSS and the two of XeSS at 33%, and TSR at
-25%.
+true one in nine recordings, the smaller one in seven: the two of DLSS and the two of XeSS at 33%, and TSR at
+25% (twice) and 33%.
 
 Speed: the 4K60 recording runs at 111 frames per second on the GPU with and without the option, at 52 instead
 of 58 on the CPU.
@@ -725,8 +752,10 @@ Recording for it:
 
 Limits:
 
-* It was checked against 32 recordings with a known setting (the tables above). Only the four of the fourth
-  round are a test of the rules as they are now - three right, one missed, all at 50%; `--lossless` and its
+* It was checked against 37 recordings with a known setting (the tables above). The four of the fourth
+  round were a test of the rules of then - three right, one missed, all at 50% - and the sixth round one of
+  the peak of the newest columns, written down before it (four pairs decided, all right; all TSR, in one
+  game; the other upscalers it was checked on afterwards: FSR 3 and the fan of FSR 2.1 / "NXSR"); `--lossless` and its
   harmonic were made from the fifth round and four earlier grids: the rule for a peak
   of one axis was made from the seven of the second round, those for the peak at 0.5 and for the upward fan
   from the second and the third, the threshold of 10 spreads so that the short recordings of a still scene
@@ -757,8 +786,10 @@ Limits:
   stays in the picture gives such a peak too.
 * The pixel grid can't tell r from 1 - r. The pan did for DLSS at 33% (ultra performance), where the entering
   picture loses detail. With TSR at 72%, "NXSR" at 50% and FSR 3 the entering picture had up to 2.4 times
-  the contrast of the leaving one - aliased, not blurred: the upward fan, which puts the larger scale first
-  because it was the true one four times out of four, not because of a reason that is understood. With XeSS
+  the contrast of the leaving one - aliased, not blurred: the upward fan. Where its newest columns peak
+  (0.40 - 0.56 of the scale for TSR and FSR 3) picks one of the two scales; the factor differs per upscaler
+  and was measured in one game, and near 50% it can't choose. Without such a peak the upward fan puts the
+  larger scale first, because it was the true one four times out of four, not for a reason. With XeSS
   at 33% the newest columns were neither, and in the recordings set to TSR at 25% and DLSS 4 at 50% the two
   were alike. So a pan that says nothing doesn't rule out a temporal upscaler, and the direction of the fan
   doesn't name one: DLSS 4.5 at 50% gave an upward fan.
@@ -766,9 +797,18 @@ Limits:
   (a capture program that scales its source to a larger canvas) all leave the same one.
 * One scale for the whole video: a render scale that changes with the load smears the peak.
 * Overlays that are drawn at the output resolution (a HUD) are part of the picture that is measured. For the
-  pan, `--resolution-rows` keeps them out if they touch the left or the right edge; nothing finds them by
-  itself. How much the part matters was only tried on the first recording: one half at 0.165 for the default
-  9-74 in its first 1500 frames, 0.168 for 20-60 and for 0-100, 0.175 for 78-98 (its lowest fifth).
+  pan, `--resolution-pan-rows` keeps them out if they touch the left or the right edge, for the pixel grid
+  `--resolution-grid-rows` if they fill the width; nothing finds them by itself.
+* The two parts of the height are two options because one default did not serve both, tried on 26
+  recordings. With the pixel grid measured in 9-74 instead of 0-88 its peak was weaker in most of them (in
+  the rows of three 3.0 - 3.7x instead of 5.0 - 6.6x), and four read less than before: the peak at 0.5 of
+  three fell below 3x, the columns of one from 3.3x to 2.1x. A smaller part also places the peak less
+  sharply: in 20-60 a grid at 0.2792 (72%; 16x / 14x) was taken for the encoder's line at 9/32. The pan is
+  less touchy: one half at 0.165 for the default 9-74 in the first 1500 frames of the first recording, 0.168
+  for 20-60 and for 0-100, 0.175 for 78-98 (its lowest fifth); with the pan measured in 0-88 three
+  recordings changed - two went from low to medium with more stair steps, one lost the order of its two
+  scales. With 20-60 for both parts 7 of 15 recordings (13 with a grid, 2 with the peak at 0.5) gave
+  another result, with 78-98 14 of 15, one of them the wrong scale of its grid at medium confidence.
 * The pan needs a horizontal pan the motion analysis can follow; ages are counted in recorded frames, so a
   game that runs faster than the recording has more than one of its frames in the newest columns.
 
@@ -817,8 +857,8 @@ On the picture:
 
 | | |
 | --- | --- |
-| dashed line | the pixel grid is measured above it (the top 88% of the height) |
-| boxes at the left and the right edge | the edge columns of the pan: 256 columns each (an eighth of the width at most), the rows of `--resolution-rows`. Grey: this frame is not used as a pan |
+| dashed line | the pixel grid is measured in the rows above it (the top 88% of the height). With `--resolution-grid-rows`: in the rows between two lines |
+| boxes at the left and the right edge | the edge columns of the pan: 256 columns each (an eighth of the width at most), the rows of `--resolution-pan-rows`. Grey: this frame is not used as a pan |
 | yellow box, `entering` | a frame of a pan: the picture enters at this edge. The colored bars and lines are the groups of columns, by the frame they entered with (red: this frame; blue: 8 - 15 frames ago) |
 | white box, `leaving` | the other edge, the same columns: what the entering ones are compared with |
 | arrow | how far the picture moved in this frame, drawn 4 times as long |
@@ -1049,6 +1089,18 @@ i7-14700KF (28 threads), RTX 4070 SUPER, no other GPU load):
 
 `--decode vulkan` on the H.264 recordings: 3.0 - 3.6x. Comparing U and V as well costs no measurable
 time on the GPU.
+
+A full video memory makes `vulkan` decode wrong. When the GPU's own memory runs out - all programs together:
+several analyses at once, a game, another program that computes on the GPU - pictures decoded with Vulkan
+Video can come out wrong, at the bottom of the picture first and from a keyframe on, without an error: a
+duplicate then counts as a new frame. Seen on an RTX 4070 SUPER (12 GB) with 129 MiB or less left; with
+155 MiB left the results were right but the decoding slower. `ffmpeg` and `opencv` were right in the same
+state. On Windows the program looks at what all programs use (the performance counter
+`GPU Adapter Memory`, every 2 seconds, on a discrete GPU) and warns when less than 256 MiB are left - at
+once and again after the summary:
+`warning: the video memory of <GPU> was full while it decoded (... of ... MiB in use, by all programs) ...`.
+Then run fewer analyses at once, close what else uses video memory or use `--decode ffmpeg`. Elsewhere it
+doesn't know (Vulkan's own memory budget counts only the program itself) and doesn't warn.
 
 ## Android app
 

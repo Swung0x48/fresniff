@@ -149,9 +149,17 @@ resolution (render resolution of an upscaled picture):
                                and their groups), the three traces as charts of what was
                                collected up to the frame, and what they say so far. Size,
                                codec and files as for --motion-video
-      --resolution-rows <a-b>  --resolution, and the part of the height, in percent from the top,
-                               whose edge columns are measured in a pan (default: 9-74; one
-                               value for all videos or comma separated per video). It should
+      --resolution-grid-rows <a-b>
+                               --resolution, and the part of the height, in percent from the top,
+                               the pixel grid is measured in (default: 0-88, without the bottom
+                               of the picture, where overlays tend to be; one value for all
+                               videos or comma separated per video). A smaller part read less
+                               in the recordings it was tried on: leave out no more than a HUD
+                               that fills the width
+      --resolution-pan-rows <a-b>
+                               --resolution, and the part of the height whose edge columns are
+                               measured in a pan, for the picture that enters and for the
+                               stair steps (default: 9-74; per video as above). It should
                                hold no HUD that touches the left or the right edge - that is
                                drawn at the output resolution and doesn't move with the picture
 
@@ -270,7 +278,8 @@ bool parse_arguments(int argc, char ** argv, Options & options)
     PerVideoValue dismiss    { "--dismiss-tear-pct", {} };
     PerVideoValue tolerance  { "--tolerance-pct", {} };
     PerVideoValue source_fps { "--source-fps", {} };
-    PerVideoValue resolution_rows { "--resolution-rows", {} };
+    PerVideoValue resolution_grid_rows { "--resolution-grid-rows", {} };
+    PerVideoValue resolution_pan_rows { "--resolution-pan-rows", {} };
     bool lossless = false;
 
     bool only_inputs = false;
@@ -301,11 +310,21 @@ bool parse_arguments(int argc, char ** argv, Options & options)
         else if (arg == "--async-capture") { options.motion = true; options.async_capture = true; }
         else if (arg == "--resolution") { options.motion = true; options.resolution = true; }
         else if (arg == "--lossless") { lossless = true; }
-        else if (arg == "--resolution-rows")
+        else if (arg == "--resolution-pan-rows")
         {
             options.motion = true;
             options.resolution = true;
-            resolution_rows.values = split(next(), ',');
+            resolution_pan_rows.values = split(next(), ',');
+        }
+        else if (arg == "--resolution-rows")
+        {
+            throw std::invalid_argument("--resolution-rows is now --resolution-pan-rows (the pixel grid has --resolution-grid-rows)");
+        }
+        else if (arg == "--resolution-grid-rows")
+        {
+            options.motion = true;
+            options.resolution = true;
+            resolution_grid_rows.values = split(next(), ',');
         }
         else if (arg == "--motion-video") { options.motion = true; options.motion_videos = split(next(), ','); }
         else if (arg == "--resolution-data")
@@ -427,14 +446,21 @@ bool parse_arguments(int argc, char ** argv, Options & options)
         if (value <= 0.0) throw std::invalid_argument("--source-fps must be > 0");
         v.source_fps_override = value;
     });
-    apply_per_video(resolution_rows, options.videos, [](VideoOptions & v, const std::string & text) {
+    // a part of the height: <from>-<to> in percent
+    auto parse_rows = [](const std::string & text, const std::string & option, const char * example, double & from, double & to) {
         const size_t dash = text.find('-');
-        if (dash == std::string::npos || dash == 0) throw std::invalid_argument("--resolution-rows expects <from>-<to> in percent of the height, e.g. 9-74");
-        const double from = parse_double(text.substr(0, dash), "--resolution-rows");
-        const double to = parse_double(text.substr(dash + 1), "--resolution-rows");
-        if (from < 0.0 || to > 100.0 || to - from < 5.0) throw std::invalid_argument("--resolution-rows: 0 <= from < to <= 100, at least 5 apart");
-        v.resolution_rows_from = from;
-        v.resolution_rows_to = to;
+        if (dash == std::string::npos || dash == 0) throw std::invalid_argument(option + " expects <from>-<to> in percent of the height, e.g. " + example);
+        const double a = parse_double(text.substr(0, dash), option.c_str());
+        const double b = parse_double(text.substr(dash + 1), option.c_str());
+        if (a < 0.0 || b > 100.0 || b - a < 5.0) throw std::invalid_argument(option + ": 0 <= from < to <= 100, at least 5 apart");
+        from = a;
+        to = b;
+    };
+    apply_per_video(resolution_grid_rows, options.videos, [&](VideoOptions & v, const std::string & text) {
+        parse_rows(text, "--resolution-grid-rows", "0-88", v.resolution_grid_from, v.resolution_grid_to);
+    });
+    apply_per_video(resolution_pan_rows, options.videos, [&](VideoOptions & v, const std::string & text) {
+        parse_rows(text, "--resolution-pan-rows", "9-74", v.resolution_pan_from, v.resolution_pan_to);
     });
     return true;
 }
@@ -482,7 +508,17 @@ void print_resolution(size_t index, const ResolutionAnalyzer::Summary & r)
     };
 
     // ---- pixel grid
+    if (r.grid_from != VideoOptions().resolution_grid_from || r.grid_to != VideoOptions().resolution_grid_to)
+    {
+        std::fprintf(stderr, "%spixel grid measured in the rows %s - %s%% of the height\n", prefix.c_str()
+                   , format_number(r.grid_from).c_str(), format_number(r.grid_to).c_str());
+    }
     auto print_no_grid = [&]() {
+        if (r.grid_rows < r.grid_rows_needed)
+        {
+            std::fprintf(stderr, "%spixel grid not measured: its part of the height has %d rows, %d are needed\n", prefix.c_str(), r.grid_rows, r.grid_rows_needed);
+            return;
+        }
         std::fprintf(stderr, "%sno pixel grid in both axes (strongest peak %.1fx the background at %.4f %s)"
                    , prefix.c_str(), std::min(r.lattice_strength_x, r.lattice_strength_y), r.lattice_frequency, unit);
         if (r.codec_peak)
@@ -547,11 +583,18 @@ void print_resolution(size_t index, const ResolutionAnalyzer::Summary & r)
     {
         std::fprintf(stderr, "%spicture entering at the edge of a pan, %lld + %lld frames (moving right + left), rows %s - %s%% of the height:"
                              " contrast against the picture that leaves down to %.2f (at %.3f %s)"
-                   , prefix.c_str(), r.pan_frames_right, r.pan_frames_left, format_number(r.rows_from).c_str(), format_number(r.rows_to).c_str()
+                   , prefix.c_str(), r.pan_frames_right, r.pan_frames_left, format_number(r.pan_from).c_str(), format_number(r.pan_to).c_str()
                    , r.lowest_contrast, r.lowest_contrast_frequency, unit);
         if (r.half_contrast_frequency > 0.0) std::fprintf(stderr, ", one half at %.3f %s", r.half_contrast_frequency, unit);
         if (r.highest_contrast >= 1.25) std::fprintf(stderr, ", up to %.2f (at %.3f %s)", r.highest_contrast, r.highest_contrast_frequency, unit);
         if (r.recovered_age > 0) std::fprintf(stderr, "; %.2f for what entered %s", r.recovered_contrast, kResolutionAgeNames[r.recovered_age]);
+        if (r.fan_peak_right > 0.0 || r.fan_peak_left > 0.0)
+        {
+            const std::string right = r.fan_peak_right > 0.0 ? format("%.3f", r.fan_peak_right, 0.0) : std::string("-");
+            const std::string left = r.fan_peak_left > 0.0 ? format("%.3f", r.fan_peak_left, 0.0) : std::string("-");
+            std::fprintf(stderr, "; the newest columns peak at %s / %s %s (right / left: about 0.4 - 0.56 of the render scale in the"
+                                 " recordings tried)", right.c_str(), left.c_str(), unit);
+        }
         if (r.half_contrast_frequency > 0.0)
         {
             std::fprintf(stderr, ": a single frame resolves about %.0f%% of the output, the rest builds up over the frames (temporal upscaling)\n"
@@ -560,8 +603,7 @@ void print_resolution(size_t index, const ResolutionAnalyzer::Summary & r)
         else if (r.fan_up)
         {
             std::fprintf(stderr, ": the entering picture has more contrast than the settled one and loses it with its age (an upward fan) -"
-                                 " a temporal upscaler that shows new pixels as they were rendered. Of the two scales of a pixel grid the larger"
-                                 " one was the true one in the recordings with such a fan\n");
+                                 " a temporal upscaler that shows new pixels as they were rendered\n");
         }
         else
         {
@@ -633,6 +675,12 @@ void print_resolution(size_t index, const ResolutionAnalyzer::Summary & r)
         case Summary::Candidate::GridOtherScale: why = "the other scale of that pixel grid, the pan speaks against it"; break;
         case Summary::Candidate::GridAndStairs: why = "the scale of the pixel grid that fits the stair steps of the entering picture"; break;
         case Summary::Candidate::GridAgainstStairs: why = "the other scale of that pixel grid, the stair steps speak against it"; break;
+        case Summary::Candidate::GridAndFanPeak:
+            why = std::string("the scale of the pixel grid that the peak of the newest columns of the pan picks")
+                + (r.peaks[static_cast<size_t>(candidate.peak)].axes == Summary::Peak::Both ? ""
+                   : r.peaks[static_cast<size_t>(candidate.peak)].axes == Summary::Peak::Columns ? " (a grid in the columns only)" : " (a grid in the rows only)");
+            break;
+        case Summary::Candidate::GridAgainstFanPeak: why = "the other scale of that pixel grid, the peak of the newest columns speaks against it"; break;
         case Summary::Candidate::GridAndHarmonic:
             why = candidate.scale < 0.5
                 ? "the smaller scale of the pixel grid: its second harmonic is strong, as a picture enlarged by a whole factor has it (recorded lossless)"
@@ -1210,6 +1258,8 @@ int run(const Options & options)
         }
         for (size_t i = 0; i < resolution_analyzers.size(); ++i) print_resolution(i, resolution_analyzers[i].summary());
     }
+    const std::string warning = pipeline.warning();
+    if (!warning.empty()) std::fprintf(stderr, "%s\n", warning.c_str());
     return 0;
 }
 

@@ -68,6 +68,9 @@ public:
 
     //! progress of the shortest video, 0 .. 1 (or < 0 if unknown)
     double progress() const;
+
+    //! something that may have made the results wrong (one line, printed after the summary), empty if nothing
+    virtual std::string warning() const { return {}; }
 };
 
 //! OpenCV decoding (BGR frames, grayscale via cv::cvtColor) with the given engine

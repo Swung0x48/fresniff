@@ -24,6 +24,7 @@ extern "C" {
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -32,6 +33,7 @@ extern "C" {
 #include <vector>
 
 #include "ffmpeg/ffmpeg_decoder.h"
+#include "gpu_memory.h"
 #include "ffmpeg/ffmpeg_encoder.h"
 #include "vulkan/vk_motion_shared.h"
 #include "ffmpeg/yuv_picture.h"
@@ -91,6 +93,7 @@ struct LatticePush {
     uint32_t rows;
     uint32_t mode;
     uint32_t offset;
+    uint32_t row0;
 };
 
 //! must match resolution_edge.comp
@@ -116,6 +119,14 @@ constexpr size_t kDrawSlots = 3;
 
 //! sets of frames in flight
 constexpr size_t kSlots = 3;
+
+//! the video memory all programs use is looked at every this often
+constexpr std::chrono::seconds kMemoryCheckInterval(2);
+//! full: less than this much of the dedicated video memory is left. Measured on an RTX 4070 SUPER (Vulkan heap
+//! 11997 MiB) with memory taken on purpose: 129 MiB or less left and pictures decoded with Vulkan Video came out
+//! wrong (from a keyframe on, at the bottom of the picture first), 155 MiB left and they were right but the
+//! decoding slower, 324 MiB left and everything was as without
+constexpr long long kMemoryFullMargin = 256ll << 20;
 
 constexpr uint32_t kBindings = 5;
 
@@ -196,6 +207,7 @@ public:
                 if (!_videos[i].decoder->next(_videos[i].first_frame)) throw std::runtime_error("'" + paths[i] + "' contains no frames");
                 _check_frame(_videos[i].first_frame, *_videos[i].decoder);
             }
+            _check_memory();
         }
         catch (...)
         {
@@ -226,6 +238,19 @@ public:
     }
 
     void enable_motion_detail() override { _motion_detail = true; }
+
+    std::string warning() const override
+    {
+        if (!_memory_full) return {};
+        char text[640];
+        std::snprintf(text, sizeof(text),
+                      "warning: the video memory of %s was full while it decoded (%lld of %lld MiB in use, by all programs):"
+                      " pictures decoded on the GPU can then come out wrong (at the bottom first, from a keyframe on), and"
+                      " duplicates are counted as new frames. Close what else uses video memory, run fewer analyses at once"
+                      " or use --decode ffmpeg",
+                      _device_name.c_str(), _memory_peak >> 20, _memory_total >> 20);
+        return text;
+    }
 
     void enable_resolution() override
     {
@@ -288,6 +313,7 @@ public:
     {
         Slot & slot = _slots[_submitted % kSlots];
         if (slot.busy) throw std::logic_error("vulkan video pipeline: submit_next() called while the slot is in flight");
+        _check_memory();
 
         // decode the next frame of every video into the slot
         for (size_t i = 0; i < _videos.size(); ++i)
@@ -546,7 +572,8 @@ public:
             if (_resolution)
             {
                 if (static_cast<uint32_t>(frame->width) > _max_workgroups) throw std::runtime_error("frame width exceeds the device limit");
-                const ResolutionLayout layout = resolution_layout(frame->width, frame->height, video_options[i].resolution_rows_from, video_options[i].resolution_rows_to);
+                const ResolutionLayout layout = resolution_layout(frame->width, frame->height, video_options[i].resolution_grid_from, video_options[i].resolution_grid_to,
+                                                                    video_options[i].resolution_pan_from, video_options[i].resolution_pan_to);
                 slot_video.resolution = layout;
                 if (layout.width > 0)
                 {
@@ -1027,6 +1054,7 @@ private:
             push.width = static_cast<uint32_t>(layout.width);
             push.luma_row_words = slot_video.plan.luma_row_words;
             push.rows = static_cast<uint32_t>(layout.lattice_rows);
+            push.row0 = static_cast<uint32_t>(layout.lattice_row0);
             _fn.vkCmdPushConstants(slot.command_buffer, _lattice.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);
             _fn.vkCmdDispatch(slot.command_buffer, push.width, 1, 1);
             push.mode = 1;
@@ -1582,6 +1610,22 @@ private:
 #endif
     }
 
+    //! looks at the video memory all programs use (every kMemoryCheckInterval), warns once when it is full
+    void _check_memory()
+    {
+        if (!_memory_use) return;
+        const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+        if (_memory_checks > 0 && now - _memory_checked < kMemoryCheckInterval) return;
+        _memory_checked = now;
+        ++_memory_checks;
+        const long long used = _memory_use->dedicated_bytes();
+        if (used < 0) return;
+        _memory_peak = std::max(_memory_peak, used);
+        if (used < _memory_total - kMemoryFullMargin || _memory_full) return;
+        _memory_full = true;
+        std::fprintf(stderr, "\n%s\n", warning().c_str());
+    }
+
     void _load_device()
     {
         AVHWDeviceContext * device = reinterpret_cast<AVHWDeviceContext *>(_hw_device->data);
@@ -1612,6 +1656,23 @@ private:
         _max_group_size = properties.limits.maxComputeWorkGroupSize[0];
         _max_group_invocations = properties.limits.maxComputeWorkGroupInvocations;
         get_memory_properties(_vk->phys_dev, &_memory_properties);
+
+        // what all programs use of the GPU's own memory: Vulkan Video decodes wrong when it is full (a
+        // discrete GPU's; an integrated GPU's "dedicated" memory is a small part of the system memory)
+        auto get_properties2 = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties2>(get_instance_proc_addr(_vk->inst, "vkGetPhysicalDeviceProperties2"));
+        if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU && get_properties2)
+        {
+            VkPhysicalDeviceIDProperties id { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES };
+            VkPhysicalDeviceProperties2 properties2 { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2 };
+            properties2.pNext = &id;
+            get_properties2(_vk->phys_dev, &properties2);
+            for (uint32_t h = 0; h < _memory_properties.memoryHeapCount; ++h)
+            {
+                const VkMemoryHeap & heap = _memory_properties.memoryHeaps[h];
+                if (heap.flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) _memory_total = std::max(_memory_total, static_cast<long long>(heap.size));
+            }
+            if (id.deviceLUIDValid && _memory_total > kMemoryFullMargin) _memory_use = std::make_unique<GpuMemoryUse>(id.deviceLUID);
+        }
 
         // a compute queue of the ones FFmpeg created
         bool found = false;
@@ -1994,6 +2055,13 @@ private:
     std::array<Slot, kSlots> _slots;
     size_t _submitted = 0;
     size_t _collected = 0;
+    //! the video memory all programs use (null: not known), the largest amount seen, whether it was full
+    std::unique_ptr<GpuMemoryUse> _memory_use;
+    long long _memory_total = 0;
+    long long _memory_peak = 0;
+    bool _memory_full = false;
+    std::chrono::steady_clock::time_point _memory_checked;
+    long long _memory_checks = 0;
     long long _frames_read = 0;
 };
 

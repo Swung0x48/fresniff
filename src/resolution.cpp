@@ -90,8 +90,18 @@ constexpr double kStairHalf = 0.2;
 //! directions of the pan have to show it, a pan in one direction compares two parts of the scene
 constexpr double kFanMinContrast = 1.25;
 constexpr double kFanSettled = 0.5;
+//! the peak of the newest columns' contrast (both directions, at kFanMinContrast or more, inside the range) is at
+//! this share of the render scale or less: the smaller scale of a grid; at kFanPeakLarge of the larger one or
+//! more: the larger. Measured peak / scale: TSR 0.40 - 0.56 (25, 33, 50, 66, 72, 75%), FSR 3 0.40 (50 - 80%),
+//! "NXSR" 0.60, FSR 2.1 0.57; written down before 25 / 75% and 33 / 66% of TSR were run blind, all four right.
+//! DLSS and XeSS leave no peak inside the range. Where the two shares overlap (scales near 50%) it decides nothing
+constexpr double kFanPeakSmall = 0.65;
+constexpr double kFanPeakLarge = 0.35;
 //! video encoders work in blocks of 4 - 64 pixels: peaks at multiples of 1 / 32 are theirs
 constexpr double kCodecGrid = 32.0;
+//! the second harmonic of a grid is used only this far from it: near 1 / 3 (2f folded back is 1 - 2f) the bins
+//! looked at for both overlap (a grid at 0.3396 had its harmonic at 0.3208)
+constexpr double kHarmonicApart = 0.05;
 //! recorded lossless: the second harmonic of a grid picks one of its two scales. A picture enlarged by a whole
 //! factor k (25%: 4) is straight between the rendered pixels and bends at them, its mean second difference is a row
 //! of spikes every k pixels, whose harmonic is as strong as the grid; above 50% the rendered pixels are less than 2
@@ -140,18 +150,22 @@ const SegmentBasis & segment_basis()
 
 } // namespace
 
-ResolutionLayout resolution_layout(int width, int height, double rows_from, double rows_to)
+ResolutionLayout resolution_layout(int width, int height, double grid_from, double grid_to, double pan_from, double pan_to)
 {
     ResolutionLayout layout;
     if (width < 8 * kResolutionSegment || height < 4 * kResolutionSegment) return layout;
     layout.width = width;
     layout.height = height;
-    layout.lattice_rows = height * 88 / 100;
+    // rounded down: 88% of 2160 rows are 1900
+    layout.grid_from = grid_from;
+    layout.grid_to = grid_to;
+    layout.lattice_row0 = std::min(height, std::max(0, static_cast<int>(std::floor(height * grid_from / 100.0))));
+    layout.lattice_rows = std::max(0, std::min(height, static_cast<int>(std::floor(height * grid_to / 100.0))) - layout.lattice_row0);
     layout.edge = std::min(kResolutionEdgeColumns, width / 8);
-    layout.rows_from = rows_from;
-    layout.rows_to = rows_to;
-    layout.row0 = std::min(height, std::max(0, static_cast<int>(std::lround(height * rows_from / 100.0))));
-    const int row1 = std::min(height, std::max(0, static_cast<int>(std::lround(height * rows_to / 100.0))));
+    layout.pan_from = pan_from;
+    layout.pan_to = pan_to;
+    layout.row0 = std::min(height, std::max(0, static_cast<int>(std::lround(height * pan_from / 100.0))));
+    const int row1 = std::min(height, std::max(0, static_cast<int>(std::lround(height * pan_to / 100.0))));
     // a part that is too short for one segment: no spectra
     if (row1 - layout.row0 >= kResolutionSegment) layout.segments = (row1 - layout.row0 - kResolutionSegment) / kResolutionHop + 1;
     // the stair steps use the rows of the segments; a band reads one row below its last
@@ -172,7 +186,7 @@ void measure_resolution(const cv::Mat & luma, const ResolutionLayout & layout, b
     out.edge_stairs.clear();
     if (layout.width == 0) return;
     const int width = layout.width;
-    const int rows = layout.lattice_rows;
+    const int row0 = layout.lattice_row0, rows = layout.lattice_rows;
     out.column_sums.assign(static_cast<size_t>(width), 0);
     out.row_sums.assign(static_cast<size_t>(rows), 0);
 
@@ -184,8 +198,8 @@ void measure_resolution(const cv::Mat & luma, const ResolutionLayout & layout, b
         std::vector<uint32_t> columns(static_cast<size_t>(width), 0);
         for (int band = range.start; band < range.end; ++band)
         {
-            const int y1 = std::min(rows, (band + 1) * kBandRows);
-            for (int y = band * kBandRows; y < y1; ++y)
+            const int y1 = row0 + std::min(rows, (band + 1) * kBandRows);
+            for (int y = row0 + band * kBandRows; y < y1; ++y)
             {
                 const uint8_t * p = luma.ptr<uint8_t>(y);
                 uint32_t * c = columns.data();
@@ -193,7 +207,7 @@ void measure_resolution(const cv::Mat & luma, const ResolutionLayout & layout, b
                 {
                     c[x] += static_cast<uint32_t>(std::abs(static_cast<int>(p[x - 1]) - 2 * static_cast<int>(p[x]) + static_cast<int>(p[x + 1])));
                 }
-                if (y == 0 || y == rows - 1) continue;
+                if (y == row0 || y == row0 + rows - 1) continue;
                 const uint8_t * up = luma.ptr<uint8_t>(y - 1);
                 const uint8_t * down = luma.ptr<uint8_t>(y + 1);
                 uint32_t sum = 0;
@@ -201,7 +215,7 @@ void measure_resolution(const cv::Mat & luma, const ResolutionLayout & layout, b
                 {
                     sum += static_cast<uint32_t>(std::abs(static_cast<int>(up[x]) - 2 * static_cast<int>(p[x]) + static_cast<int>(down[x])));
                 }
-                out.row_sums[static_cast<size_t>(y)] = sum;
+                out.row_sums[static_cast<size_t>(y - row0)] = sum;
             }
         }
         const std::lock_guard<std::mutex> lock(merge);
@@ -616,8 +630,12 @@ ResolutionAnalyzer::Summary ResolutionAnalyzer::summary() const
     result.width = _layout.width;
     result.height = _layout.height;
     result.frames = _frames;
-    result.rows_from = _layout.rows_from;
-    result.rows_to = _layout.rows_to;
+    result.grid_from = _layout.grid_from;
+    result.grid_to = _layout.grid_to;
+    result.grid_rows = _layout.lattice_rows;
+    result.grid_rows_needed = 4 * kLatticeDetrend;
+    result.pan_from = _layout.pan_from;
+    result.pan_to = _layout.pan_to;
 
     // ---- pixel grid: peaks relative to the background around them
     if (_lattice_frames > 0 && !_grid_x.spectrum.empty() && !_grid_y.spectrum.empty())
@@ -810,6 +828,25 @@ ResolutionAnalyzer::Summary ResolutionAnalyzer::summary() const
                 break;
             }
         }
+        // where the newest columns of each direction have the most contrast
+        for (size_t d = 0; d < 2 && result.half_contrast_frequency == 0.0; ++d)
+        {
+            if (_pan_frames[d] < kMinPanFrames / 2 || _columns[d][0] == 0) continue;
+            double curve[kResolutionBins];
+            const double unit = _leaving[d][0][0] > 0.0 ? _entering[d][0][0] / _leaving[d][0][0] : 0.0;
+            if (unit <= 0.0) continue;
+            for (size_t b = 0; b < kResolutionBins; ++b)
+            {
+                const double ratio = _leaving[d][0][b] > 0.0 ? _entering[d][0][b] / _leaving[d][0][b] : 0.0;
+                curve[b] = std::sqrt(ratio / unit);
+            }
+            size_t top = 0;
+            for (size_t b = 1; b < kResolutionBins; ++b) if (curve[b] > curve[top]) top = b;
+            if (top == 0 || top + 1 >= kResolutionBins || curve[top] < kFanMinContrast) continue;
+            const double bend = curve[top - 1] - 2.0 * curve[top] + curve[top + 1];
+            const double offset = bend != 0.0 ? 0.5 * (curve[top - 1] - curve[top + 1]) / bend : 0.0;
+            (d == 0 ? result.fan_peak_right : result.fan_peak_left) = bin_frequency(static_cast<int>(top)) + offset / kResolutionSegment;
+        }
     }
 
     // ---- stair steps
@@ -879,16 +916,39 @@ ResolutionAnalyzer::Summary ResolutionAnalyzer::summary() const
             a = to_smaller < to_larger ? smaller : 1.0 - smaller;
             b = 1.0 - a;
         }
-        // recorded lossless: the second harmonic, if it lies apart from the grid (at 1 / 3 it falls on it)
+        // the peak of the newest columns: both directions on the same side
+        int fan_side = 0;
+        if (result.fan_peak_right > 0.0 && result.fan_peak_left > 0.0)
+        {
+            auto side = [smaller](double p) {
+                const bool low = p <= kFanPeakSmall * smaller, high = p >= kFanPeakLarge * (1.0 - smaller);
+                return low == high ? 0 : (low ? -1 : 1);
+            };
+            const int right = side(result.fan_peak_right), left = side(result.fan_peak_left);
+            if (right == left) fan_side = right;
+        }
+        const bool fan_peaked = !picked && !stepped && fan_side != 0;
+        if (fan_peaked)
+        {
+            a = fan_side < 0 ? smaller : 1.0 - smaller;
+            b = 1.0 - a;
+        }
+        // recorded lossless: the second harmonic, if it lies apart from the grid (near 1 / 3 it falls on it)
         bool harmonic = false;
-        if (_lossless && !picked && !stepped && peak.axes == Summary::Peak::Both && std::abs(peak.harmonic_frequency - peak.frequency) >= kPeakApart)
+        if (_lossless && !picked && !stepped && !fan_peaked && peak.axes == Summary::Peak::Both
+            && std::abs(peak.harmonic_frequency - peak.frequency) >= kHarmonicApart)
         {
             if (std::min(peak.harmonic_share_x, peak.harmonic_share_y) >= kHarmonicSmall) { a = smaller; harmonic = true; }
             else if (std::max(peak.harmonic_share_x, peak.harmonic_share_y) <= kHarmonicLarge) { a = 1.0 - smaller; harmonic = true; }
             if (harmonic) b = 1.0 - a;
         }
         const int index = static_cast<int>(i);
-        if (peak.axes != Summary::Peak::Both)
+        if (peak.axes != Summary::Peak::Both && fan_peaked)
+        {
+            add(a, Candidate::Low, Candidate::GridAndFanPeak, index);
+            add(b, Candidate::Low, Candidate::GridAgainstFanPeak, index);
+        }
+        else if (peak.axes != Summary::Peak::Both)
         {
             add(a, Candidate::Low, Candidate::GridOneAxis, index);
             add(b, Candidate::Low, Candidate::GridOneAxis, index);
@@ -907,6 +967,11 @@ ResolutionAnalyzer::Summary ResolutionAnalyzer::summary() const
         {
             add(a, Candidate::High, Candidate::GridAndStairs, index);
             add(b, Candidate::Low, Candidate::GridAgainstStairs, index);
+        }
+        else if (fan_peaked)
+        {
+            add(a, Candidate::Medium, Candidate::GridAndFanPeak, index);
+            add(b, Candidate::Low, Candidate::GridAgainstFanPeak, index);
         }
         else if (harmonic)
         {
@@ -954,10 +1019,11 @@ void ResolutionAnalyzer::write_data(std::ostream & out, const std::string & vide
     out << "# video: " << video << "\n";
     out << "# width: " << _layout.width << "\n# height: " << _layout.height << "\n# frames: " << _frames << "\n";
     out << "# grid_frames: " << _lattice_frames << "\n# grid_rows: " << _layout.lattice_rows << "\n";
+    out << "# grid_rows_from: " << number(_layout.grid_from) << "\n# grid_rows_to: " << number(_layout.grid_to) << "\n";
     out << "# pieces: " << _chunks << "\n# piece_frames: " << kLatticeChunk << "\n# piece_strength: " << number(kLatticeChunkStrength) << "\n";
     out << "# block_grid: " << number(kCodecGrid) << "\n";
     out << "# lossless: " << (_lossless ? 1 : 0) << "\n";
-    out << "# pan_rows_from: " << number(_layout.rows_from) << "\n# pan_rows_to: " << number(_layout.rows_to) << "\n";
+    out << "# pan_rows_from: " << number(_layout.pan_from) << "\n# pan_rows_to: " << number(_layout.pan_to) << "\n";
     out << "# pan_frames_right: " << _pan_frames[0] << "\n# pan_frames_left: " << _pan_frames[1] << "\n";
     for (int age = 0; age < kResolutionAges; ++age) out << "# age_" << age << ": " << kResolutionAgeNames[age] << "\n";
     out << "# stair_heights: " << kResolutionStairHeights << "\n";

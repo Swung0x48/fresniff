@@ -170,7 +170,8 @@ public:
                 {
                     // the edge columns are only used for frames of a pan
                     result.resolution = std::make_shared<ResolutionFrame>();
-                    const ResolutionLayout layout = resolution_layout(luma.cols, luma.rows, video_options[i].resolution_rows_from, video_options[i].resolution_rows_to);
+                    const ResolutionLayout layout = resolution_layout(luma.cols, luma.rows, video_options[i].resolution_grid_from, video_options[i].resolution_grid_to,
+                                                                        video_options[i].resolution_pan_from, video_options[i].resolution_pan_to);
                     measure_resolution(luma, layout, resolution_pan_usable(resolution_pan(result.motion, luma.cols, luma.rows)), *result.resolution);
                 }
             }

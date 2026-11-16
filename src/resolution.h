@@ -64,7 +64,8 @@ struct ResolutionLayout {
     //! 0: the frame is too small
     int width = 0;
     int height = 0;
-    //! the pixel grid uses the rows [0, lattice_rows): not the bottom of the picture, where overlays tend to be
+    //! the pixel grid uses the rows [lattice_row0, lattice_row0 + lattice_rows)
+    int lattice_row0 = 0;
     int lattice_rows = 0;
     //! columns per edge, and the rows of their spectra: `segments` segments starting at row0 (0: too few rows)
     int edge = 0;
@@ -72,26 +73,32 @@ struct ResolutionLayout {
     int segments = 0;
     //! bands of rows for the stair steps, within the rows of the segments (0: too few rows)
     int stair_bands = 0;
-    //! ... as they were asked for, percent of the height
-    double rows_from = 0.0;
-    double rows_to = 0.0;
+    //! the two parts as they were asked for, percent of the height
+    double grid_from = 0.0;
+    double grid_to = 0.0;
+    double pan_from = 0.0;
+    double pan_to = 0.0;
 
     bool operator==(const ResolutionLayout & other) const
     {
-        return width == other.width && height == other.height && lattice_rows == other.lattice_rows && edge == other.edge
+        return width == other.width && height == other.height && lattice_row0 == other.lattice_row0
+            && lattice_rows == other.lattice_rows && edge == other.edge
             && row0 == other.row0 && segments == other.segments && stair_bands == other.stair_bands;
     }
 };
-//! rows_from, rows_to: the part of the height (percent, from the top) whose edge columns are measured
-//! (VideoOptions::resolution_rows_from / _to)
-ResolutionLayout resolution_layout(int width, int height, double rows_from, double rows_to);
+//! grid_from, grid_to: the part of the height (percent, from the top) the pixel grid is measured in
+//! (VideoOptions::resolution_grid_from / _to), pan_from, pan_to: the part whose edge columns are measured
+//! (VideoOptions::resolution_pan_from / _to)
+ResolutionLayout resolution_layout(int width, int height, double grid_from, double grid_to, double pan_from, double pan_to);
 
 //! what is measured of one frame
 struct ResolutionFrame {
     ResolutionLayout layout;
-    //! per column x: sum over the rows of |p[x-1] - 2 p[x] + p[x+1]| (0 for the first and the last column)
+    //! per column x: sum over the rows of the pixel grid's part of |p[x-1] - 2 p[x] + p[x+1]| (0 for the first
+    //! and the last column)
     std::vector<uint32_t> column_sums;
-    //! per row y < lattice_rows: sum over the columns of |p[y-1] - 2 p[y] + p[y+1]| (0 for the first and the last)
+    //! per row of the pixel grid's part, lattice_rows of them: sum over the columns of |p[y-1] - 2 p[y] + p[y+1]|
+    //! (0 for the first and the last)
     std::vector<uint32_t> row_sums;
     //! the spectra of the edge columns were measured
     bool edges = false;
@@ -181,10 +188,17 @@ public:
         bool half_present = false;
         bool half_peak = false;
 
+        //! the part of the height the pixel grid was measured in, percent; its rows, and how many a spectrum
+        //! needs (fewer: the pixel grid was not measured)
+        double grid_from = 0.0;
+        double grid_to = 0.0;
+        int grid_rows = 0;
+        int grid_rows_needed = 0;
+
         // picture entering at the edge of a pan
         //! the part of the height that was measured, percent
-        double rows_from = 0.0;
-        double rows_to = 0.0;
+        double pan_from = 0.0;
+        double pan_to = 0.0;
         //! frames used, picture moving to the right / to the left
         long long pan_frames_right = 0;
         long long pan_frames_left = 0;
@@ -222,6 +236,12 @@ public:
         //! the contrast of the oldest columns measured at that frequency (0: none), and their age
         double recovered_contrast = 0.0;
         int recovered_age = -1;
+        //! where the newest columns have the most contrast, per direction of the pan (parabola through the top bin),
+        //! cycles per pixel; 0: not read (fewer than kMinPanFrames / 2 frames, below kFanMinContrast, at the end of
+        //! the range, or a pan that halves the contrast). It sits at about 0.40 - 0.56 of the render scale (TSR,
+        //! FSR 3), so it tells which of the two scales of a grid it is (see kFanPeakSmall)
+        double fan_peak_right = 0.0;
+        double fan_peak_left = 0.0;
 
         //! a render scale the traces fit
         struct Candidate {
@@ -230,15 +250,16 @@ public:
             //! how much speaks for it. These are levels of a rule, not probabilities:
             //! High: a grid in both axes, and the pan picks this one of its two scales (the other one is 1.2 times
             //! further from what the pan reads) or the stair steps of the entering picture fit it
-            //! Medium: a grid in both axes; nothing tells its two scales apart, or (lossless) its second harmonic
-            //! picks this one, or the fan is an upward one and this is the larger scale (the true one in the
-            //! recordings tried). The peak at 0.5 with stair steps of 2
-            //! Low: the scale of a grid the pan, the stair steps or the harmonic speak against, the smaller scale of
-            //! a grid with an upward fan, a second grid, a grid in one axis only, the peak at 0.5, the stair steps
-            //! or the pan alone
+            //! Medium: a grid in both axes; nothing tells its two scales apart, or the peak of the newest columns
+            //! picks this one, or (lossless) its second harmonic does, or the fan is an upward one and this is the
+            //! larger scale. The peak at 0.5 with stair steps of 2
+            //! Low: the scale of a grid the pan, the stair steps, the fan's peak or the harmonic speak against, the
+            //! smaller scale of a grid with an upward fan, a second grid, a grid in one axis only (the fan's peak
+            //! puts one of its scales first), the peak at 0.5, the stair steps or the pan alone
             enum Confidence { Low, Medium, High } confidence = Low;
-            enum Evidence { Grid, GridAndPan, GridOtherScale, GridAndStairs, GridAgainstStairs, GridAndHarmonic, GridAgainstHarmonic,
-                            GridAndFan, GridAgainstFan, GridOneAxis, HalfPeak, HalfAndStairs, Stairs, Pan } evidence = Grid;
+            enum Evidence { Grid, GridAndPan, GridOtherScale, GridAndStairs, GridAgainstStairs, GridAndFanPeak, GridAgainstFanPeak,
+                            GridAndHarmonic, GridAgainstHarmonic, GridAndFan, GridAgainstFan, GridOneAxis, HalfPeak, HalfAndStairs,
+                            Stairs, Pan } evidence = Grid;
             //! index into peaks (-1: none)
             int peak = -1;
         };

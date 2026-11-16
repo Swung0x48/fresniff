@@ -56,10 +56,16 @@ struct VideoOptions {
     double dismiss_tear_percentage = 10.0;
     //! overrides the recorded framerate of the source (0 = read from the container)
     double source_fps_override = 0.0;
-    //! --resolution: the part of the height (percent, from the top) whose edge columns are measured in a pan.
-    //! Where a HUD touches the left or the right edge differs from game to game
-    double resolution_rows_from = 9.0;
-    double resolution_rows_to = 74.0;
+    //! --resolution-grid-rows: the part of the height (percent, from the top) the pixel grid is measured in. Not
+    //! the bottom of the picture, where overlays tend to be. A smaller part read less in the recordings it was
+    //! tried on (README, limits of the render resolution)
+    double resolution_grid_from = 0.0;
+    double resolution_grid_to = 88.0;
+    //! --resolution-pan-rows: the part of the height (percent, from the top) whose edge columns are measured in
+    //! a pan (their spectra and their stair steps). Where a HUD touches the left or the right edge differs from
+    //! game to game
+    double resolution_pan_from = 9.0;
+    double resolution_pan_to = 74.0;
     //! --lossless: the video was recorded lossless (and never coded lossy before), whatever its codec: a duplicate
     //! frame is identical (no tolerance for compression noise), and the resolution estimate has no block grid of
     //! an encoder to keep apart

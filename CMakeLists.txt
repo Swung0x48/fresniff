@@ -145,7 +145,11 @@ if(USE_FFMPEG)
                                          "${_select_shader_inc}" "${_texture_shader_inc}"
                                          "${_overlay_base_shader_inc}" "${_overlay_draw_shader_inc}"
                                          "${_resolution_lattice_shader_inc}" "${_resolution_edge_shader_inc}"
-                                         "${_resolution_stairs_shader_inc}")
+                                         "${_resolution_stairs_shader_inc}" src/gpu_memory.cpp)
+        if(WIN32)
+            # the video memory all programs use (performance counters), see gpu_memory.h
+            target_link_libraries(trdrop-pp PRIVATE pdh)
+        endif()
         message(STATUS "trdrop++: FFmpeg decoding enabled (with Vulkan Video)")
     else()
         message(STATUS "trdrop++: FFmpeg decoding enabled (CPU only, Vulkan Video needs USE_VULKAN)")

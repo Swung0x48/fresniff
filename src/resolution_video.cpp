@@ -233,12 +233,23 @@ void ResolutionVideo::_prepare(const ResolutionAnalyzer & analyzer)
         _put(_static_text, label);
     };
 
-    // the pixel grid is measured above this line
-    const float lattice = static_cast<float>(_layout.lattice_rows) * _sy;
-    if (_layout.lattice_rows < _layout.height)
+    // the pixel grid is measured in the rows between these lines (none at the top / bottom of the picture)
+    const float lattice_top = static_cast<float>(_layout.lattice_row0) * _sy;
+    const float lattice_bottom = static_cast<float>(_layout.lattice_row0 + _layout.lattice_rows) * _sy;
+    const bool line_top = _layout.lattice_row0 > 0;
+    const bool line_bottom = _layout.lattice_row0 + _layout.lattice_rows < _layout.height;
+    if (line_top) _dashes(out, 0.0f, lattice_top, width, lattice_top, kLeaving, 10.0f * u, 8.0f * u);
+    if (line_bottom)
     {
-        _dashes(out, 0.0f, lattice, width, lattice, kLeaving, 10.0f * u, 8.0f * u);
-        text(x1, std::min(lattice, _text_panel.y0) - 7.0f * u, "pixel grid: measured above the dashed line", -1);
+        _dashes(out, 0.0f, lattice_bottom, width, lattice_bottom, kLeaving, 10.0f * u, 8.0f * u);
+        text(x1, std::min(lattice_bottom, _text_panel.y0) - 7.0f * u,
+             line_top ? "pixel grid: the rows between the dashed lines" : "pixel grid: the rows above this line", -1);
+    }
+    else if (line_top)
+    {
+        // below the line, and below the charts if they hide it
+        const float below_line = std::max(lattice_top, _charts ? _grid_panel.y1 : 0.0f);
+        text(x1, below_line + 7.0f * u + static_cast<float>(_small.height), "pixel grid: the rows below this line", -1);
     }
     _fill(out, _text_panel, kPanel);
     if (!_charts) return;
@@ -398,7 +409,10 @@ void ResolutionVideo::_refresh(const ResolutionAnalyzer & analyzer)
     }
     else if (summary.fan_up)
     {
-        _cells[1] = { nothing, format("max %.2f (sharper)", summary.highest_contrast), nothing };
+        // the peak of the newest columns, both directions (one, if only one has it)
+        const double fan_peak = summary.fan_peak_right > 0.0 && summary.fan_peak_left > 0.0
+                          ? 0.5 * (summary.fan_peak_right + summary.fan_peak_left) : std::max(summary.fan_peak_right, summary.fan_peak_left);
+        _cells[1] = { fan_peak > 0.0 ? format("%.3f", fan_peak) : nothing, format("max %.2f (sharper)", summary.highest_contrast), nothing };
     }
     else
     {
