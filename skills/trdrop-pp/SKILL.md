@@ -148,6 +148,7 @@ number came from when several were analyzed.
 | Small real changes are missed in a mostly static picture (a static camera, a menu) | the automatic tolerance allows for them only where the recording has duplicates that change little (recorded above the framerate, a good bitrate). Otherwise lower it: `--tolerance-pct 0.1`, or `--lossless` for a recording encoded lossless (HEVC lossless): a duplicate is then an identical frame. On three such recordings of a 60 fps game the automatic tolerance counted 200 - 500 new frames of a still camera as duplicates (44 - 53 instead of 56 - 57 fps). A desktop overlay in the picture (the taskbar) that is redrawn at another rate reads as a tear with `--lossless` |
 | The container's framerate is wrong | `--source-fps <fps>` |
 | The capture was not in step with the game's output (variable refresh rate output, or recorded with a capture program like OBS) and the summary shows a `note:` about animation errors of one whole interval | `--async-capture` instead of `--motion`, see below |
+| A console (59.94 Hz) recorded at 60 fps by a capture program, and the framerate swings 29 / 31 (or the perceived smoothness 29.5 / 30.5) for a few seconds every ~16.7 s | `--ignore-clock-skew`, see below |
 | Many tears reported on a picture with black bars or a static HUD | expected: a boundary between unchanged and changed rows counts as a tear. `--dismiss-tear-pct` raises the size a tear must have |
 | No GPU, a GPU error, or results must not depend on the GPU | `--no-vk` (CPU only), or `--decode ffmpeg` |
 | Several GPUs | `--list-vkdevices`, then `--vkdevice <n>` |
@@ -174,6 +175,17 @@ note appears and it isn't clear. A game with bad frame pacing (pictures really s
 the same recording, and with the option that is no longer reported; animation errors below one interval
 disappear too. When you use it, say so in the report, give the numbers with and without it, and mention how
 many pictures were counted in: a capture that loses pictures should be fixed rather than corrected.
+
+`--ignore-clock-skew` handles one case of this only: a 59.94 Hz source recorded at 60 fps. The two clocks
+drift by one interval every ~1001 recorded frames (16.7 s at 60 fps); around each such point the pictures of
+the game are recorded alternately a tick early and late (a 30 fps game 3, 1, 3, 1 instead of 2, 2) and the
+episode holds one interval too many. The option filters episodes with exactly that pattern which lie on one
+lattice of that period for the whole video (with `--motion`, only if the motion says the game was even), and
+nothing else: hitches, cuts, frames split by a HUD change (1, 1) stay. It works with or without `--motion`,
+also together with `--async-capture`, and needs a game at half the recording's framerate or less. The summary
+says what it found (`v1 clock skew: a 59.940 Hz source ... N episodes filtered at ...`) or why nothing was
+filtered; report that line. The CSV is written only at the end, and the motion video shows the values as
+recorded.
 
 ## What it can not do
 
