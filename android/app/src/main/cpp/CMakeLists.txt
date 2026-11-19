@@ -58,6 +58,7 @@ add_library(trdrop SHARED
     ${TRDROP_ROOT}/src/frame_analyzer.cpp
     ${TRDROP_ROOT}/src/diff_engine_cpu.cpp
     ${TRDROP_ROOT}/src/opencv_pipeline.cpp
+    ${TRDROP_ROOT}/src/clock_skew.cpp
     ${TRDROP_ROOT}/src/motion.cpp
     ${TRDROP_ROOT}/src/motion_video.cpp
     ${TRDROP_ROOT}/src/resolution.cpp

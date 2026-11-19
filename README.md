@@ -41,6 +41,7 @@ trdrop-pp [options] <video> [<video> [<video>]]
 | `--motion-video <file>` | `--motion`, and write a [copy of the video with the motion drawn on it](#motion-video---motion-video) (`.mp4`, `.mkv`, `.mov`; one file per input video, comma separated) |
 | `--arrow-scale <x>` | draw the arrows of the motion video x times longer (default `1`) |
 | `--async-capture` | `--motion` for a [capture that didn't run in step with the game's output](#captures-that-are-not-in-step---async-capture): pictures recorded an interval late don't count as animation error, pictures the capture lost are counted in |
+| `--ignore-clock-skew` | filter only what [a 59.94 Hz source recorded at 60 fps](#clock-skew---ignore-clock-skew) does every 16.7 s (pictures recorded alternately early and late, an interval too many), everything else stays |
 | `--resolution` | `--motion`, and estimate the [render resolution](#render-resolution---resolution) behind temporally upscaled video (DLSS, FSR, XeSS, TSR, PSSR), from the frames of the clip |
 | `--resolution-grid-rows <a-b>` | `--resolution`, and the part of the height (percent, from the top) the pixel grid is measured in (default `0-88`) |
 | `--resolution-pan-rows <a-b>` | `--resolution`, and the part of the height whose edge columns are measured in a pan, for the entering picture and the stair steps (default `9-74`) |
@@ -419,7 +420,7 @@ that is animation error and a framerate and perceived smoothness that swing betw
 16.7 seconds; with it the steps stay at 2, the error at 0 and the perceived smoothness at 30, except for
 about a second at 29.5 per episode, where the recording really holds an interval more (`vN_fps` keeps
 swinging: it counts what was recorded). Setting the capture program to 59.94 fps makes such episodes rarer
-(but longer).
+(but longer). For just this case there is [`--ignore-clock-skew`](#clock-skew---ignore-clock-skew).
 
 The first line of the summary and `vN_diff` / `vN_fps` / `vN_frametime_ms` stay what the recording contains.
 
@@ -439,6 +440,45 @@ with a capture program that lost and repeated about 20 pictures per second):
 | --- | --- | --- |
 | `motion_ball_capture` | 50.1 fps, perceived 45.2 fps, animation error avg 5.1 ms | 59.8 fps, perceived 60.0 fps, avg 0.2 ms |
 | game recording, 120 fps | 99.3 fps, perceived 90.4 fps, avg 2.9 ms (31% of the errors are +-8.3 ms) | 119.5 fps, perceived 119.5 fps, avg 0.4 ms |
+
+### Clock skew (`--ignore-clock-skew`)
+
+`--ignore-clock-skew` filters exactly the 59.94 Hz / 60 fps case above, also without `--motion`, and
+leaves everything else as recorded. With a 1000 / 1001 ratio of the two clocks (59.94 Hz recorded at 60 fps,
+60 Hz at 59.94, or at a multiple of the rate) they drift by one interval every ~1001 recorded frames, whatever
+the game's framerate. An episode is filtered if
+
+* the recorded lengths of its new frames differ from the cadence around them (the mean length within a second
+  before and after, if that is a whole number of intervals) by exactly one interval, alternately longer and
+  shorter, beginning and ending with the same sign: net one interval too many (or too few);
+* with `--motion`: the animation steps of those frames are closer to the cadence than to the recorded lengths
+  (the game was even, the capture wasn't);
+* and it lies on one lattice for the whole video: one period between 900 and 1101 frames, one phase, one sign.
+  The lattice is fitted to episodes of 3 or more such frames only (a single frame one interval too long is
+  what a hitch looks like), needs 3 of them, at 40% of the lattice points where the cadence is steady, and 60%
+  of all such episodes of the same sign on it. A single frame one interval too long counts only where the
+  lattice has a point and no other episode.
+
+Two lengths that add up to the cadence (a 30 fps frame recorded as 1, 1: a change in the HUD) never come from
+the clock and stay, and so does whatever else doesn't fit: a hitch, a cut, a real change of the framerate.
+Every frame of a filtered episode counts as shown for its cadence - the alternation and the interval the clocks
+drifted - in `vN_fps`, `vN_frametime_ms`, the animation error and the perceived smoothness, and in the summary
+(`vN_diff` stays what the pixels say). The summary says what was found:
+
+```
+v1 clock skew: a 59.940 Hz source in the 60.000 fps recording - one interval too many every 994 frames (16.57 s); 17 episodes filtered at 9.2-12.3, 25.6-28.7, ...
+```
+
+or why nothing was filtered (`nothing filtered (no beat: ...)`). Nothing found means the same CSV and summary as
+without the option. The CSV is written once the whole video is analyzed; the motion video shows the values as
+recorded.
+
+Measured on four 4K recordings of a PS5 Pro (Live Gamer BOLT, OBS at 60 fps; a game at 30 fps), 2.5 - 5.5
+minutes each: 17, 11, 10 and 7 episodes filtered, every 979 - 996 frames (59.94 Hz). In the 285 s one
+(`--motion`): `vN_fps` 30 instead of 29 / 31 in every episode, the perceived smoothness 29.9 - 30.0 instead of
+29.4 - 30.5, rows with a frametime of 16.7 ms from 841 to 53 and of 50 ms from 482 to 3, not one row changed further than a
+second from an episode. No episode was filtered in the ball fixtures, the truth clip, a 4K 120 fps recording
+whose capture lost and repeated pictures, and 144 / 240 fps recordings of a game with variable refresh rate.
 
 ### Recording at twice the framerate
 

@@ -97,6 +97,8 @@ struct Options {
     //! the capture didn't run in step with what it recorded: a picture may have been recorded up to one
     //! interval late and pictures may be missing (see MotionAnalyzer)
     bool async_capture = false;
+    //! filter the episodes a 59.94 Hz source recorded at 60 fps has every ~1001 frames (see clock_skew.h)
+    bool ignore_clock_skew = false;
     //! estimate the render resolution of an upscaled picture (ResolutionAnalyzer), needs the motion
     bool resolution = false;
     //! per input video: file for the data the resolution estimate is made of, as CSV (empty: none)

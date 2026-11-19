@@ -50,6 +50,7 @@ add_executable(trdrop-pp
     src/frame_analyzer.cpp
     src/diff_engine_cpu.cpp
     src/opencv_pipeline.cpp
+    src/clock_skew.cpp
     src/motion.cpp
     src/motion_video.cpp
     src/resolution.cpp

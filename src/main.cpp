@@ -20,6 +20,7 @@
 #include <opencv2/core.hpp>
 #include <opencv2/core/utils/logger.hpp>
 
+#include "clock_skew.h"
 #include "diff_engine.h"
 #include "frame_analyzer.h"
 #include "frame_pipeline.h"
@@ -106,6 +107,16 @@ motion (smoothness of the animation, needs coherent motion like a moving camera)
                                also after a picture that was recorded twice).
                                A game that really shows a picture an interval late looks the
                                same: use it only if you know the capture is not in step
+      --ignore-clock-skew      filter what a 59.94 Hz source recorded at 60 fps (or 60 Hz at
+                               59.94, or at a multiple) does every ~1001 frames (16.7 s): a
+                               few seconds of pictures recorded alternately a tick early and
+                               late, and an interval too many. Only episodes with that
+                               pattern which lie on one lattice of that period for the whole
+                               video (and whose motion agrees, with --motion) are filtered:
+                               vN_fps, vN_frametime_ms, the animation error and the perceived
+                               smoothness count them as shown for their cadence. Anything
+                               else stays. The CSV is written at the end; the motion video
+                               shows the values as recorded
 
 resolution (render resolution of an upscaled picture):
       --resolution             --motion, and estimate the resolution the picture was rendered at
@@ -308,6 +319,7 @@ bool parse_arguments(int argc, char ** argv, Options & options)
         else if (arg == "--no-vk") { options.use_vulkan = false; }
         else if (arg == "--motion") { options.motion = true; }
         else if (arg == "--async-capture") { options.motion = true; options.async_capture = true; }
+        else if (arg == "--ignore-clock-skew") { options.ignore_clock_skew = true; }
         else if (arg == "--resolution") { options.motion = true; options.resolution = true; }
         else if (arg == "--lossless") { lossless = true; }
         else if (arg == "--resolution-pan-rows")
@@ -488,7 +500,147 @@ struct VideoStats {
     long long frametime_samples = 0;
     double frametime_sum = 0.0;
     double frametime_max = 0.0;
+    //! --ignore-clock-skew: intervals added to the compared frames by the filtered episodes (< 0: removed)
+    long long interval_correction = 0;
 };
+
+//! --ignore-clock-skew: what a row holds of a video, kept until the whole video is known
+struct StoredValues {
+    bool compared = false;
+    double diff = 0.0;
+    double fps = 0.0;
+    double frametime = 0.0;
+    size_t tears = 0;
+    MotionSample sample;
+};
+
+//! --ignore-clock-skew for video `video` of the rows: finds the episodes (clock_skew.h) and, if there are, recomputes
+//! the framerate, the frametime, the animation error and the perceived smoothness of the rows as if every frame of
+//! an episode had been recorded for its cadence, and the summaries. window: frames of the rolling framerate
+ClockSkewResult filter_clock_skew(std::vector<std::vector<StoredValues>> & rows, size_t video, double fps, size_t window
+                                , VideoStats & stats, MotionAnalyzer::Summary * motion)
+{
+    const size_t count = rows.size();
+    std::vector<double> diff(count, std::numeric_limits<double>::quiet_NaN());
+    std::vector<double> step;
+    if (motion) step.assign(count, std::numeric_limits<double>::quiet_NaN());
+    for (size_t t = 0; t < count; ++t)
+    {
+        const StoredValues & v = rows[t][video];
+        if (v.compared) diff[t] = v.diff;
+        if (motion && v.sample.measurable) step[t] = v.sample.step;
+    }
+    ClockSkewResult result = detect_clock_skew(diff, step, fps);
+    if (!result.found) return result;
+    const std::vector<long long> times = clock_skew_times(diff, result.correction);
+    const long long length = static_cast<long long>(window);
+
+    // rolling framerate and frametime: the frames of the last second of the re-timed time. Where that second holds
+    // the same rows as before and no correction, the values stay as they are
+    std::vector<int> corrected(count + 1, 0); // prefix sums of the rows with a correction
+    for (size_t t = 0; t < count; ++t) corrected[t + 1] = corrected[t] + (result.correction[t] != 0 ? 1 : 0);
+    size_t first = 0;
+    while (first < count && !rows[first][video].compared) ++first;
+    size_t lo = first;
+    for (size_t t = first; t < count; ++t)
+    {
+        StoredValues & v = rows[t][video];
+        if (!v.compared) continue;
+        while (times[lo] <= times[t] - length) ++lo;
+        const size_t original_lo = t + 1 >= first + window ? t + 1 - window : first;
+        if (lo == original_lo && corrected[t + 1] == corrected[lo]) continue;
+        double sum = 0.0;
+        for (size_t j = lo; j <= t; ++j) sum += rows[j][video].diff;
+        v.fps = sum;
+        v.frametime = 0.0;
+        if (sum < 2.0) continue;
+        long long last_new = -1, previous_new = -1;
+        for (size_t j = t + 1; j-- > lo;)
+        {
+            if (rows[j][video].diff <= 0.0) continue;
+            if (last_new < 0) last_new = static_cast<long long>(j);
+            else { previous_new = static_cast<long long>(j); break; }
+        }
+        if (previous_new >= 0)
+        {
+            v.frametime = static_cast<double>(times[static_cast<size_t>(last_new)] - times[static_cast<size_t>(previous_new)])
+                        / static_cast<double>(window) * 1000.0;
+        }
+    }
+
+    // the summary of the framerate and the frametime, as while the video was analyzed
+    stats.window_samples = 0;
+    stats.fps_sum = 0.0;
+    stats.fps_min = std::numeric_limits<double>::infinity();
+    stats.fps_max = 0.0;
+    stats.frametime_samples = 0;
+    stats.frametime_sum = 0.0;
+    stats.frametime_max = 0.0;
+    long long compared = 0;
+    for (size_t t = 0; t < count; ++t)
+    {
+        const StoredValues & v = rows[t][video];
+        if (!v.compared) continue;
+        stats.interval_correction += result.correction[t];
+        if (++compared < static_cast<long long>(window)) continue;
+        stats.window_samples += 1;
+        stats.fps_sum += v.fps;
+        stats.fps_min = std::min(stats.fps_min, v.fps);
+        stats.fps_max = std::max(stats.fps_max, v.fps);
+        if (v.frametime > 0.0)
+        {
+            stats.frametime_samples += 1;
+            stats.frametime_sum += v.frametime;
+            stats.frametime_max = std::max(stats.frametime_max, v.frametime);
+        }
+    }
+    if (!motion) return result;
+
+    // motion: a new frame of an episode counts as shown for its cadence in the animation error and the perceived
+    // smoothness - if the motion's new frames are the frames the episode was found in
+    RollingSmoothness rolling(fps, static_cast<size_t>(std::max(1.0, std::ceil(fps - 1e-9))));
+    std::vector<float> errors;
+    long long shown_delta = 0;
+    long long previous_new = -1;
+    for (size_t t = 0; t < count; ++t)
+    {
+        MotionSample & sample = rows[t][video].sample;
+        const bool is_new = !std::isnan(diff[t]) && diff[t] > 0.0;
+        if (sample.has_error)
+        {
+            double displayed = sample.chain_displayed;
+            const int correction = result.correction[t];
+            if (correction != 0 && sample.lost == 0 && previous_new >= 0 && sample.chain_shown == static_cast<long long>(t) - previous_new)
+            {
+                const int shown = sample.chain_shown + correction;
+                displayed = static_cast<double>(shown);
+                sample.error_ms = (sample.chain_step - displayed) * 1000.0 / fps;
+                shown_delta += correction;
+            }
+            errors.push_back(static_cast<float>(sample.error_ms));
+            const int pictures = 1 + sample.lost;
+            for (int k = 0; k < pictures; ++k) rolling.add_step(times[t], sample.chain_step / pictures, displayed / pictures);
+        }
+        sample.has_perceived_fps = rolling.push_frame(times[t], sample.measurable, sample.perceived_fps);
+        if (is_new) previous_new = static_cast<long long>(t);
+    }
+    MotionAnalyzer::Summary & m = *motion;
+    m.shown_total += shown_delta;
+    if (m.shown_total > 0)
+    {
+        m.motion_fps = fps * static_cast<double>(m.animation_frames) / static_cast<double>(m.shown_total);
+        if (m.step_square_sum > 0.0) m.perceived_fps = fps * m.step_sum * m.step_sum / (static_cast<double>(m.shown_total) * m.step_square_sum);
+    }
+    if (!rolling.values().empty())
+    {
+        std::vector<float> sorted = rolling.values();
+        std::sort(sorted.begin(), sorted.end());
+        m.perceived_fps_median = sorted[sorted.size() / 2];
+        m.perceived_fps_low = sorted[sorted.size() / 10];
+    }
+    MotionAnalyzer::summarize_errors(errors, fps, m);
+    return result;
+}
 
 //! --resolution: what was measured, then the render resolutions it fits
 void print_resolution(size_t index, const ResolutionAnalyzer::Summary & r)
@@ -988,10 +1140,35 @@ int run(const Options & options)
     std::vector<RowCounts> row_counts;
     std::string line;
 
+    // --ignore-clock-skew: the values of every row, per video, written once the whole video is known
+    std::vector<std::vector<StoredValues>> stored_rows;
+    auto format_values = [&](const StoredValues & v, std::string & out) {
+        out += ',';
+        if (v.compared) out += format_number(v.diff);
+        out += ',' + format_number(v.fps);
+        out += ',' + format_number(v.frametime);
+        out += ',' + std::to_string(v.tears);
+        if (!options.motion) return;
+        out += ',';
+        if (v.sample.measurable) out += format_number(v.sample.step);
+        out += ',';
+        if (v.sample.measurable) out += format_number(v.sample.step_spread);
+        out += ',';
+        if (v.sample.has_error) out += format_number(v.sample.error_ms);
+        out += ',';
+        if (v.sample.has_perceived_fps) out += format_number(v.sample.perceived_fps);
+        if (options.async_capture)
+        {
+            out += ',';
+            if (v.sample.has_error) out += std::to_string(v.sample.lost);
+        }
+    };
+
     // --motion: the motion results of a frame need the frames after it, the rows wait for them
     struct PendingRow {
         long long frame = 0;
         std::vector<std::string> columns; // per video, each starts with a comma
+        std::vector<StoredValues> stored; // --ignore-clock-skew
         // for the motion videos, per video
         std::vector<MotionVideoFrame> values;
         std::vector<std::shared_ptr<MotionDetail>> details;
@@ -1039,9 +1216,11 @@ int run(const Options & options)
                     row.values[i].sample = sample;
                     motion_videos[i]->write(row.values[i], *row.details[i]);
                 }
+                if (options.ignore_clock_skew) row.stored[i].sample = sample;
             }
             line += '\n';
-            *output << line;
+            if (options.ignore_clock_skew) stored_rows.push_back(std::move(row.stored));
+            else *output << line;
             pending_rows.pop_front();
         }
     };
@@ -1078,6 +1257,19 @@ int run(const Options & options)
         row.columns.resize(video_count);
         row.values.resize(video_count);
         row.details.resize(video_count);
+        if (options.ignore_clock_skew)
+        {
+            row.stored.resize(video_count);
+            for (size_t i = 0; i < video_count; ++i)
+            {
+                StoredValues & v = row.stored[i];
+                v.compared = analyzer.has_difference();
+                v.diff = differences[i];
+                v.fps = framerates[i];
+                v.frametime = frametimes[i];
+                v.tears = tears_per_video[i];
+            }
+        }
         for (size_t i = 0; i < video_count; ++i)
         {
             // the picture of the frame, for the videos that are drawn on it
@@ -1139,6 +1331,10 @@ int run(const Options & options)
             pending_rows.push_back(std::move(row));
             write_ready_rows();
         }
+        else if (options.ignore_clock_skew)
+        {
+            stored_rows.push_back(std::move(row.stored));
+        }
         else
         {
             line = std::to_string(row.frame);
@@ -1161,6 +1357,24 @@ int run(const Options & options)
     while (pipeline.pending() > 0) emit_frame();
     for (MotionAnalyzer & motion : motion_analyzers) motion.finish();
     write_ready_rows();
+    std::vector<MotionAnalyzer::Summary> motion_summaries;
+    for (const MotionAnalyzer & motion : motion_analyzers) motion_summaries.push_back(motion.summary());
+    std::vector<ClockSkewResult> clock_skew(options.ignore_clock_skew ? video_count : 0);
+    for (size_t i = 0; i < clock_skew.size(); ++i)
+    {
+        clock_skew[i] = filter_clock_skew(stored_rows, i, recorded_framerates[i], static_cast<size_t>(window_sizes[i])
+                                        , stats[i], options.motion ? &motion_summaries[i] : nullptr);
+    }
+    if (options.ignore_clock_skew)
+    {
+        for (size_t row = 0; row < stored_rows.size(); ++row)
+        {
+            line = std::to_string(row);
+            for (const StoredValues & v : stored_rows[row]) format_values(v, line);
+            line += '\n';
+            *output << line;
+        }
+    }
     for (const std::unique_ptr<MotionVideo> & video : motion_videos)
     {
         if (video) video->finish();
@@ -1202,7 +1416,8 @@ int run(const Options & options)
         for (size_t i = 0; i < video_count; ++i)
         {
             const VideoStats & s = stats[i];
-            const double effective_fps = s.compared_frames > 0 ? s.diff_sum / s.compared_frames * recorded_framerates[i] : 0.0;
+            const long long intervals = s.compared_frames + s.interval_correction;
+            const double effective_fps = intervals > 0 ? s.diff_sum / static_cast<double>(intervals) * recorded_framerates[i] : 0.0;
             std::fprintf(stderr, "v%zu: effective %.2f fps | new %lld, duplicate %lld, torn %lld (%lld tears)"
                        , i + 1, effective_fps, s.new_frames, s.duplicate_frames, s.torn_frames, s.tear_count);
             if (s.window_samples > 0)
@@ -1214,10 +1429,28 @@ int run(const Options & options)
                 std::fprintf(stderr, " | frametime avg %.2f ms max %.2f ms", s.frametime_sum / s.frametime_samples, s.frametime_max);
             }
             std::fprintf(stderr, "\n");
+            if (i < clock_skew.size())
+            {
+                const ClockSkewResult & c = clock_skew[i];
+                if (!c.found)
+                {
+                    std::fprintf(stderr, "v%zu clock skew: nothing filtered (%s)\n", i + 1, c.reason.c_str());
+                    continue;
+                }
+                const double fps = recorded_framerates[i];
+                std::fprintf(stderr, "v%zu clock skew: a %.3f Hz source in the %.3f fps recording - one interval %s every %d frames (%.2f s);"
+                                     " %zu episodes filtered at", i + 1, c.source_fps, fps, c.sign > 0 ? "too many" : "too few"
+                           , c.period, c.period / fps, c.episodes.size());
+                for (size_t e = 0; e < c.episodes.size(); ++e)
+                {
+                    std::fprintf(stderr, "%s %.1f-%.1f", e == 0 ? "" : ",", c.episodes[e].first / fps, c.episodes[e].second / fps);
+                }
+                std::fprintf(stderr, " s\n");
+            }
         }
         for (size_t i = 0; i < motion_analyzers.size(); ++i)
         {
-            const MotionAnalyzer::Summary m = motion_analyzers[i].summary();
+            const MotionAnalyzer::Summary & m = motion_summaries[i];
             // share of the new frames whose motion could be measured (duplicates are easy and say little)
             const double measurable = m.new_frames > 0 ? 100.0 * static_cast<double>(m.measurable_new_frames) / static_cast<double>(m.new_frames) : 0.0;
             std::fprintf(stderr, "v%zu motion: measured %lld of %lld new frames (%.1f%%)", i + 1, m.measurable_new_frames, m.new_frames, measurable);

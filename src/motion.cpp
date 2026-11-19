@@ -322,6 +322,7 @@ MotionAnalyzer::MotionAnalyzer(double fps, double window_ms, bool async_capture)
                                        : std::max(_half_window, static_cast<size_t>(std::round(kMaxWindowSeconds / 2.0 * fps))))
     , _rolling_window(static_cast<size_t>(std::max(1.0, std::ceil(fps - 1e-9))))
     , _async_capture(async_capture)
+    , _rolling(fps, _rolling_window)
 { }
 
 void MotionAnalyzer::push(const MotionField & field, bool duplicate, double changed_share)
@@ -572,15 +573,16 @@ MotionSample MotionAnalyzer::_finalize(size_t position)
                     }
                     const bool missing = _shown == 1;
                     const bool repeated = _shown == 2 && _lost_evidence.size() >= kMinLostEvidence;
-                    if ((missing || repeated) && _rolling_steps.size() >= kMinRollingSteps)
+                    const std::deque<RollingSmoothness::Step> & rolling_steps = _rolling.steps();
+                    if ((missing || repeated) && rolling_steps.size() >= kMinRollingSteps)
                     {
                         // the usual step: of the last few pictures, the scale of the steps drifts if the motion
                         // speeds up or slows down
                         _recent_steps.clear();
-                        const size_t count = std::min(_rolling_steps.size(), kLostUsualSteps);
-                        for (size_t k = _rolling_steps.size() - count; k < _rolling_steps.size(); ++k)
+                        const size_t count = std::min(rolling_steps.size(), kLostUsualSteps);
+                        for (size_t k = rolling_steps.size() - count; k < rolling_steps.size(); ++k)
                         {
-                            _recent_steps.push_back(static_cast<float>(_rolling_steps[k].step));
+                            _recent_steps.push_back(static_cast<float>(rolling_steps[k].step));
                         }
                         const double usual = median(_recent_steps);
                         if (usual <= kLostMaxStep && _accumulated_step >= kLostMinRatio * usual && _accumulated_step <= kLostMaxRatio * usual)
@@ -605,13 +607,16 @@ MotionSample MotionAnalyzer::_finalize(size_t position)
                 // steps would cover 59 or 61 intervals instead of 60. Only by whole intervals, as the capture
                 // moves pictures: the rest of the drift is noise of the steps.
                 const double displayed = std::max(0.0, static_cast<double>(_shown) + retimed_intervals);
+                sample.chain_step = _accumulated_step;
+                sample.chain_shown = static_cast<int>(_shown);
+                sample.chain_displayed = displayed;
                 _lost_frames += sample.lost;
                 _animation_frames += pictures;
                 _step_sum += _accumulated_step;
                 _step_square_sum += pictures * step * step;
                 for (int k = 0; k < pictures; ++k)
                 {
-                    _rolling_steps.push_back({ _finalized, step, displayed / pictures });
+                    _rolling.add_step(_finalized, step, displayed / pictures);
                 }
             }
             _chain = true;
@@ -621,35 +626,70 @@ MotionSample MotionAnalyzer::_finalize(size_t position)
     }
 
     // perceived smoothness over the last second
-    _rolling_measurable.push_back(sample.measurable ? 1 : 0);
-    _rolling_measurable_count += sample.measurable ? 1 : 0;
-    if (_rolling_measurable.size() > _rolling_window)
-    {
-        _rolling_measurable_count -= _rolling_measurable.front();
-        _rolling_measurable.pop_front();
-    }
-    while (!_rolling_steps.empty() && _rolling_steps.front().frame + static_cast<long long>(_rolling_window) <= _finalized)
-    {
-        _rolling_steps.pop_front();
-    }
-    if (_rolling_steps.size() >= kMinRollingSteps
-        && static_cast<double>(_rolling_measurable_count) > kMinRollingMeasurable * static_cast<double>(_rolling_window))
-    {
-        double sum = 0.0, square_sum = 0.0, displayed = 0.0;
-        for (const RollingStep & step : _rolling_steps)
-        {
-            sum += step.step;
-            square_sum += step.step * step.step;
-            displayed += step.displayed;
-        }
-        if (square_sum > 0.0 && displayed > 0.0)
-        {
-            sample.has_perceived_fps = true;
-            sample.perceived_fps = perceived_smoothness(_fps, sum, square_sum, displayed);
-            _rolling_values.push_back(static_cast<float>(sample.perceived_fps));
-        }
-    }
+    sample.has_perceived_fps = _rolling.push_frame(_finalized, sample.measurable, sample.perceived_fps);
     return sample;
+}
+
+void MotionAnalyzer::summarize_errors(const std::vector<float> & errors, double fps, Summary & result)
+{
+    if (errors.empty()) return;
+    std::vector<float> absolute(errors.size());
+    double sum = 0.0;
+    for (size_t i = 0; i < errors.size(); ++i)
+    {
+        absolute[i] = std::fabs(errors[i]);
+        sum += absolute[i];
+    }
+    std::sort(absolute.begin(), absolute.end());
+    const double interval = 1000.0 / fps;
+    long long too_short = 0, too_long = 0;
+    for (float error : errors)
+    {
+        if (std::fabs(std::fabs(error) - interval) > 0.25 * interval) continue;
+        ++(error < 0.0f ? too_short : too_long);
+    }
+    result.interval_errors_short = static_cast<double>(too_short) / static_cast<double>(errors.size());
+    result.interval_errors_long = static_cast<double>(too_long) / static_cast<double>(errors.size());
+    result.mean_abs_error_ms = sum / static_cast<double>(absolute.size());
+    result.median_abs_error_ms = absolute[absolute.size() / 2];
+    result.p95_abs_error_ms = absolute[std::min(absolute.size() - 1, static_cast<size_t>(0.95 * static_cast<double>(absolute.size())))];
+    result.max_abs_error_ms = absolute.back();
+}
+
+RollingSmoothness::RollingSmoothness(double fps, size_t window)
+    : _fps(fps)
+    , _window(static_cast<long long>(window))
+{ }
+
+bool RollingSmoothness::push_frame(long long time, bool measurable, double & perceived_fps)
+{
+    _measurable.push_back({ time, static_cast<unsigned char>(measurable ? 1 : 0) });
+    _measurable_count += measurable ? 1 : 0;
+    while (_measurable.front().first + _window <= time)
+    {
+        _measurable_count -= _measurable.front().second;
+        _measurable.pop_front();
+    }
+    while (!_steps.empty() && _steps.front().time + _window <= time)
+    {
+        _steps.pop_front();
+    }
+    if (_steps.size() < kMinRollingSteps
+        || static_cast<double>(_measurable_count) <= kMinRollingMeasurable * static_cast<double>(_window))
+    {
+        return false;
+    }
+    double sum = 0.0, square_sum = 0.0, displayed = 0.0;
+    for (const Step & step : _steps)
+    {
+        sum += step.step;
+        square_sum += step.step * step.step;
+        displayed += step.displayed;
+    }
+    if (square_sum <= 0.0 || displayed <= 0.0) return false;
+    perceived_fps = perceived_smoothness(_fps, sum, square_sum, displayed);
+    _values.push_back(static_cast<float>(perceived_fps));
+    return true;
 }
 
 MotionAnalyzer::Summary MotionAnalyzer::summary() const
@@ -673,37 +713,17 @@ MotionAnalyzer::Summary MotionAnalyzer::summary() const
         std::vector<float> sorted = _step_spread;
         result.median_step_spread_ms = median(sorted) * 1000.0 / _fps;
     }
-    if (!_rolling_values.empty())
+    result.shown_total = _shown_total;
+    result.step_sum = _step_sum;
+    result.step_square_sum = _step_square_sum;
+    if (!_rolling.values().empty())
     {
-        std::vector<float> sorted = _rolling_values;
+        std::vector<float> sorted = _rolling.values();
         std::sort(sorted.begin(), sorted.end());
         result.perceived_fps_median = sorted[sorted.size() / 2];
         result.perceived_fps_low = sorted[sorted.size() / 10];
     }
-    if (!_errors.empty())
-    {
-        std::vector<float> absolute(_errors.size());
-        double sum = 0.0;
-        for (size_t i = 0; i < _errors.size(); ++i)
-        {
-            absolute[i] = std::fabs(_errors[i]);
-            sum += absolute[i];
-        }
-        std::sort(absolute.begin(), absolute.end());
-        const double interval = 1000.0 / _fps;
-        long long too_short = 0, too_long = 0;
-        for (float error : _errors)
-        {
-            if (std::fabs(std::fabs(error) - interval) > 0.25 * interval) continue;
-            ++(error < 0.0f ? too_short : too_long);
-        }
-        result.interval_errors_short = static_cast<double>(too_short) / static_cast<double>(_errors.size());
-        result.interval_errors_long = static_cast<double>(too_long) / static_cast<double>(_errors.size());
-        result.mean_abs_error_ms = sum / static_cast<double>(absolute.size());
-        result.median_abs_error_ms = absolute[absolute.size() / 2];
-        result.p95_abs_error_ms = absolute[std::min(absolute.size() - 1, static_cast<size_t>(0.95 * static_cast<double>(absolute.size())))];
-        result.max_abs_error_ms = absolute.back();
-    }
+    summarize_errors(_errors, _fps, result);
     return result;
 }
 

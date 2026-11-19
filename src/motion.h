@@ -206,6 +206,41 @@ struct MotionSample {
     //! perceived smoothness over the last second
     bool has_perceived_fps = false;
     double perceived_fps = 0.0;
+    //! with has_error: the step since the previous new frame, the intervals that frame was recorded for, and the
+    //! time it counts as shown in the perceived smoothness (in intervals; = chain_shown unless re-timed)
+    double chain_step = 0.0;
+    int chain_shown = 0;
+    double chain_displayed = 0.0;
+};
+
+//! The perceived smoothness over the last second: the steps of the new frames (and the time each frame was shown)
+//! that ended within `window` intervals before the current frame. Times are in intervals of the recording; they
+//! may be re-timed (--ignore-clock-skew) as long as they don't decrease.
+class RollingSmoothness {
+public:
+    struct Step {
+        long long time;
+        double step;
+        double displayed;
+    };
+
+    RollingSmoothness(double fps, size_t window);
+    //! a new frame at `time` ended a step
+    void add_step(long long time, double step, double displayed) { _steps.push_back({ time, step, displayed }); }
+    //! the frame at `time`, after its steps: true and the value if there is one over the last second
+    bool push_frame(long long time, bool measurable, double & perceived_fps);
+    //! the steps of the last second, oldest first (before push_frame of the current frame: up to it)
+    const std::deque<Step> & steps() const { return _steps; }
+    //! every value push_frame returned
+    const std::vector<float> & values() const { return _values; }
+
+private:
+    double _fps;
+    long long _window;
+    std::deque<Step> _steps;
+    std::deque<std::pair<long long, unsigned char>> _measurable;
+    long long _measurable_count = 0;
+    std::vector<float> _values;
 };
 
 //! Turns the motion fields of a video into animation steps, the animation error and the perceived smoothness.
@@ -269,6 +304,11 @@ public:
         long long lost_frames = 0;
         //! ... of them after a picture that was recorded twice (attributed to the capture, not proven)
         long long lost_after_repeat = 0;
+        //! what the overall perceived smoothness is made of: intervals the new frames were recorded for, and the
+        //! sum of their steps and of the squared steps
+        long long shown_total = 0;
+        double step_sum = 0.0;
+        double step_square_sum = 0.0;
     };
 
     //! fps: recorded framerate, window_ms: length of the reference window (0: automatic),
@@ -285,6 +325,9 @@ public:
     bool ready() const { return !_ready.empty(); }
 
     Summary summary() const;
+    //! sets the animation error values of `summary` (mean, median, p95, max of |error|, and the shares of whole
+    //! intervals) from the errors of the new frames
+    static void summarize_errors(const std::vector<float> & errors, double fps, Summary & summary);
 
 private:
     struct Entry {
@@ -327,14 +370,7 @@ private:
     std::deque<long long> _lost_evidence;
 
     // perceived smoothness over the last second
-    struct RollingStep {
-        long long frame;
-        double step;
-        double displayed;
-    };
-    std::deque<RollingStep> _rolling_steps;
-    std::deque<unsigned char> _rolling_measurable;
-    long long _rolling_measurable_count = 0;
+    RollingSmoothness _rolling;
 
     // summary
     long long _measurable_frames = 0;
@@ -345,7 +381,6 @@ private:
     double _step_sum = 0.0;
     double _step_square_sum = 0.0;
     std::vector<float> _errors;
-    std::vector<float> _rolling_values;
     std::vector<float> _step_spread;
     // scratch of _finalize
     //! a new frame of the window with the intervals since the previous new frame
