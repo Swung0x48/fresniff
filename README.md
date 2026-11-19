@@ -444,9 +444,12 @@ with a capture program that lost and repeated about 20 pictures per second):
 ### Clock skew (`--ignore-clock-skew`)
 
 `--ignore-clock-skew` filters exactly the 59.94 Hz / 60 fps case above, also without `--motion`, and
-leaves everything else as recorded. With a 1000 / 1001 ratio of the two clocks (59.94 Hz recorded at 60 fps,
-60 Hz at 59.94, or at a multiple of the rate) they drift by one interval every ~1001 recorded frames, whatever
-the game's framerate. An episode is filtered if
+leaves everything else as recorded. With a 1000 / 1001 ratio of the two clocks they drift by one interval every
+~1001 recorded frames, whatever the game's framerate. It needs a game at half the recording's framerate or less
+(a cadence of 2 intervals or more): a picture shown for one interval can't be recorded an interval shorter, so
+a 60 fps game in a 60 fps recording has no alternation to find, and nothing is filtered. Tried on 59.94 Hz
+recorded at 60 fps only; 60 Hz recorded at 59.94 (one interval too few per beat) or recordings at a multiple of
+the rate should look the same but weren't tried. An episode is filtered if
 
 * the recorded lengths of its new frames differ from the cadence around them (the mean length within a second
   before and after, if that is a whole number of intervals) by exactly one interval, alternately longer and

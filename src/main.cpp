@@ -115,8 +115,10 @@ motion (smoothness of the animation, needs coherent motion like a moving camera)
                                video (and whose motion agrees, with --motion) are filtered:
                                vN_fps, vN_frametime_ms, the animation error and the perceived
                                smoothness count them as shown for their cadence. Anything
-                               else stays. The CSV is written at the end; the motion video
-                               shows the values as recorded
+                               else stays. Needs a game at half the recording's framerate or
+                               less (a 60 fps game at 60 fps has nothing to filter). The CSV
+                               is written at the end; the motion video shows the values as
+                               recorded
 
 resolution (render resolution of an upscaled picture):
       --resolution             --motion, and estimate the resolution the picture was rendered at

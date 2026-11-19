@@ -22,6 +22,8 @@ namespace trdrop {
 //!    kClockSkewMinEpisodes of them, at kClockSkewMinOccupancy of the lattice points where the cadence is steady,
 //!    and kClockSkewMinPurity of all such series of the same sign on it.
 //! Two lengths adding up to the cadence (2 recorded as 1, 1) can't come from the clock and are left alone.
+//! A cadence of 1 (a 60 fps game at 60 fps) can't alternate - a picture can't be recorded for 0 intervals -, so
+//! nothing is filtered there.
 constexpr int kClockSkewPeriodMin = 900;
 constexpr int kClockSkewPeriodMax = 1101;
 constexpr int kClockSkewSeriesMin = 3;
