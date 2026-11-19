@@ -41,6 +41,10 @@ constexpr double kLostMaxStep = 1.2;
 //! a picture recorded twice before such a step counts as repeated by the capture (and the next one as lost)
 //! if the capture lost at least this many pictures in the last second in the way described above
 constexpr size_t kMinLostEvidence = 3;
+//! a step this much (in intervals) shorter than the picture was recorded makes it count as recorded an interval
+//! late, this much longer as on time again: the capture moves pictures by whole intervals, the steps of a game with
+//! uneven pacing differ by half an interval (motion_ball_uneven)
+constexpr double kLateJump = 0.65;
 
 //! Framerate of evenly paced motion that looks as smooth as the steps: the new frames per second divided by
 //! 1 + (coefficient of variation of the steps)^2 = fps * sum(step)^2 / (displayed intervals * sum(step^2)).
@@ -367,6 +371,7 @@ void MotionAnalyzer::_reset_chain()
     _shown = 0;
     _band_low = -1.0;
     _band_high = 0.0;
+    _late = false;
 }
 
 MotionSample MotionAnalyzer::_finalize(size_t position)
@@ -520,6 +525,8 @@ MotionSample MotionAnalyzer::_finalize(size_t position)
                 ++_shown;
                 // how far the animation advanced beyond the time the previous picture was recorded, in intervals
                 double error = _accumulated_step - static_cast<double>(_shown);
+                // asynchronous capture: whole intervals the previous picture was shown longer than recorded
+                double retimed_intervals = 0.0;
                 if (_async_capture)
                 {
                     // The drift moved by `error`. Within the band of one interval that is the capture, beyond it
@@ -546,6 +553,15 @@ MotionSample MotionAnalyzer::_finalize(size_t position)
                     _band_high -= moved;
                     const double retimed = moved - error;
                     if (std::fabs(retimed) > 0.5) ++_retimed_frames;
+                    // for the perceived smoothness: whether the picture was recorded an interval late. Only a jump
+                    // of the drift by about a whole interval changes that, not the band: a scale of the steps that
+                    // is a few percent off for a while moves the band to its edge, and fractional steps (variable
+                    // refresh rate) move it all the time. Two states keep the display times of a window within
+                    // one interval of the recorded ones.
+                    const bool late_before = _late;
+                    if (moved <= -kLateJump) _late = true;
+                    else if (moved >= kLateJump) _late = false;
+                    retimed_intervals = (late_before ? 1.0 : 0.0) - (_late ? 1.0 : 0.0);
                     // A lost picture shows as a step twice as long as the steps around it. If the previous picture
                     // was recorded an interval short of that step, a picture is missing. If it was recorded twice,
                     // either the capture repeated it and lost the next one, or the game showed it twice: that
@@ -583,13 +599,19 @@ MotionSample MotionAnalyzer::_finalize(size_t position)
                 // a lost picture and the one after it share the step
                 const int pictures = 1 + sample.lost;
                 const double step = _accumulated_step / pictures;
+                // Time the previous picture was shown, for the perceived smoothness. Asynchronous capture: as
+                // re-timed - the recorded intervals jitter by one where the capture's clock passes the source's
+                // refresh (a 59.94 Hz source recorded at 60 fps: a few seconds every 16.7 s), and a second of
+                // steps would cover 59 or 61 intervals instead of 60. Only by whole intervals, as the capture
+                // moves pictures: the rest of the drift is noise of the steps.
+                const double displayed = std::max(0.0, static_cast<double>(_shown) + retimed_intervals);
                 _lost_frames += sample.lost;
                 _animation_frames += pictures;
                 _step_sum += _accumulated_step;
                 _step_square_sum += pictures * step * step;
                 for (int k = 0; k < pictures; ++k)
                 {
-                    _rolling_steps.push_back({ _finalized, step, static_cast<double>(_shown) / pictures });
+                    _rolling_steps.push_back({ _finalized, step, displayed / pictures });
                 }
             }
             _chain = true;

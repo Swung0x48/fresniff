@@ -318,6 +318,8 @@ private:
     bool _async_capture;
     double _band_low = -1.0;
     double _band_high = 0.0;
+    //! for the perceived smoothness: the current new frame was recorded an interval after it was shown
+    bool _late = false;
     long long _retimed_frames = 0;
     long long _lost_frames = 0;
     long long _lost_after_repeat = 0;

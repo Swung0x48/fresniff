@@ -402,8 +402,24 @@ With `--async-capture` (it implies `--motion`):
 * If the repeat and the lost picture fall together (`A B B D`), the recording is the same as a game that
   showed one picture twice. While the capture demonstrably loses pictures (at least 3 in the last second)
   it counts as the capture; the summary says how many these are.
+* The perceived smoothness takes the time a picture was shown from the step as well: a step about a whole
+  interval (0.65 or more) shorter than the picture was recorded makes it count as recorded an interval late,
+  one that much longer as on time again. Otherwise a second of steps would span 59 or 61 recorded intervals
+  instead of 60, and the value would jump by half a frame per second for as long as the capture records
+  pictures alternately early and late. Only these jumps count, not the band: the steps of a game with a
+  variable refresh rate are fractions of an interval anyway.
 * The summary line ends with `asynchronous capture: 1404 pictures re-timed by an interval, 933 lost pictures
   counted in (218 of them after a repeated picture)`.
+
+A typical case: a 59.94 Hz source (consoles) recorded at 60 fps by a program with its own clock (OBS set to
+60). Every 1 / (60 - 59.94) = 16.7 seconds the capture's tick passes the source's refresh, and for a few
+seconds small differences in timing decide whether a picture is recorded one tick earlier or later - a 30 fps
+game recorded for 1 and 3 instead of 2 and 2 intervals, and one interval more after it. Without the option
+that is animation error and a framerate and perceived smoothness that swing between 29.5 and 30.5 every
+16.7 seconds; with it the steps stay at 2, the error at 0 and the perceived smoothness at 30, except for
+about a second at 29.5 per episode, where the recording really holds an interval more (`vN_fps` keeps
+swinging: it counts what was recorded). Setting the capture program to 59.94 fps makes such episodes rarer
+(but longer).
 
 The first line of the summary and `vN_diff` / `vN_fps` / `vN_frametime_ms` stay what the recording contains.
 
@@ -451,10 +467,11 @@ What to expect and how to check it:
 * The time a picture was shown is known to one interval of the capture, so the animation error carries up to
   one interval of noise (4.2 ms at 240 fps). The framerate and the perceived smoothness count pictures and
   compare their steps, they don't have that noise.
-* `--async-capture` changes only the animation error of such a recording. No picture is recorded once, so
-  none counts as lost, and the framerate and the perceived smoothness stay as they are. Its band of one
-  interval takes the noise of the capture out of the error - and real errors of less than an interval with
-  it. The error without the option is an upper bound, the one with it a lower bound.
+* `--async-capture` changes mostly the animation error of such a recording. No picture is recorded once, so
+  none counts as lost and the framerate stays as it is. The perceived smoothness of single seconds moves by a
+  few percent here and there (pictures re-timed by an interval), its median and 10% low by 0.1 fps at most.
+  Its band of one interval takes the noise of the capture out of the error - and real errors of less than
+  an interval with it. The error without the option is an upper bound, the one with it a lower bound.
 * Don't expect more from the timestamps of the file: the card this was tried with numbers its frames on the
   240 fps grid whenever they arrive. trdrop++ doesn't read them.
 
