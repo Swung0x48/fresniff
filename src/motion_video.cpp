@@ -34,6 +34,41 @@ constexpr int kMargin = 8;
 constexpr int kPadding = 10;
 constexpr int kLines = 4;
 
+//! the chart under the text: this many seconds, the plot this many lines of text high
+constexpr double kChartSeconds = 10.0;
+constexpr int kChartLines = 5;
+//! narrower plots are left out
+constexpr int kChartMinWidth = 200;
+// colors of the chart (BGR)
+const cv::Vec3b kFramerateColor(90, 220, 90);
+const cv::Vec3b kPerceivedColor(255, 170, 70);
+const cv::Vec3b kGridColor(85, 85, 85);
+
+//! the top of the chart: the next common framerate at or above the recorded one
+double chart_top(double fps)
+{
+    for (const double top : { 30.0, 60.0, 120.0, 144.0, 240.0, 360.0, 480.0 })
+    {
+        if (fps <= top + 0.5) return top;
+    }
+    return 60.0 * std::ceil(fps / 60.0);
+}
+
+MotionVideoSegment chart_segment(float x0, float y0, float x1, float y1, float radius, const cv::Vec3b & color)
+{
+    MotionVideoSegment segment;
+    segment.x0 = x0;
+    segment.y0 = y0;
+    segment.x1 = x1;
+    segment.y1 = y1;
+    segment.radius = radius;
+    segment.blue = color[0];
+    segment.green = color[1];
+    segment.red = color[2];
+    segment.above_box = true;
+    return segment;
+}
+
 cv::Point fixed_point(double x, double y)
 {
     return cv::Point(static_cast<int>(std::lround(x * (1 << kShift))), static_cast<int>(std::lround(y * (1 << kShift))));
@@ -76,23 +111,28 @@ public:
         }
         cv::LUT(_picture, _dim_table, _picture);
 
-        for (const MotionVideoSegment & segment : scene.segments)
-        {
-            const cv::Scalar color(segment.blue, segment.green, segment.red);
-            if (segment.x0 == segment.x1 && segment.y0 == segment.y1)
+        auto draw_segments = [&](bool above_box) {
+            for (const MotionVideoSegment & segment : scene.segments)
             {
-                cv::circle(_picture, fixed_point(segment.x0, segment.y0), static_cast<int>(std::lround(segment.radius * (1 << kShift))),
-                           color, cv::FILLED, cv::LINE_AA, kShift);
+                if (segment.above_box != above_box) continue;
+                const cv::Scalar color(segment.blue, segment.green, segment.red);
+                if (segment.x0 == segment.x1 && segment.y0 == segment.y1)
+                {
+                    cv::circle(_picture, fixed_point(segment.x0, segment.y0), static_cast<int>(std::lround(segment.radius * (1 << kShift))),
+                               color, cv::FILLED, cv::LINE_AA, kShift);
+                }
+                else
+                {
+                    cv::line(_picture, fixed_point(segment.x0, segment.y0), fixed_point(segment.x1, segment.y1), color,
+                             std::max(1, static_cast<int>(std::lround(2.0f * segment.radius))), cv::LINE_AA, kShift);
+                }
             }
-            else
-            {
-                cv::line(_picture, fixed_point(segment.x0, segment.y0), fixed_point(segment.x1, segment.y1), color,
-                         std::max(1, static_cast<int>(std::lround(2.0f * segment.radius))), cv::LINE_AA, kShift);
-            }
-        }
+        };
+        draw_segments(false);
 
         const cv::Rect box = scene.box & cv::Rect(cv::Point(0, 0), _size);
-        if (!box.empty() && scene.text.size() == scene.box.size())
+        const bool has_box = !box.empty() && scene.text.size() == scene.box.size();
+        if (has_box)
         {
             if (_box_dim != scene.box_dim)
             {
@@ -101,6 +141,11 @@ public:
             }
             cv::Mat region = _picture(box);
             cv::LUT(region, _box_table, region);
+        }
+        draw_segments(true);
+        if (has_box)
+        {
+            cv::Mat region = _picture(box);
             // white text, by its coverage
             for (int y = 0; y < box.height; ++y)
             {
@@ -174,11 +219,110 @@ MotionVideo::MotionVideo(const std::string & path, int frame_width, int frame_he
     const cv::Size box(_text(nullptr, widest, 0, 0, true) + kPadding, kLines * _line_height + kPadding);
     _scene.dim = kDim;
     _scene.box_dim = kBoxDim;
+    auto fits = [&](const cv::Size & size) { return size.width <= _size.width - 2 * kMargin && size.height <= _size.height - 2 * kMargin; };
     // no text on pictures it doesn't fit on
-    if (box.width <= _size.width - 2 * kMargin && box.height <= _size.height - 2 * kMargin)
+    if (!fits(box)) return;
+    _scene.box = cv::Rect(cv::Point(kMargin, kMargin), box);
+
+    // the chart: a line for the legend, the plot with the values at its left, room for the label at its bottom
+    const int label_width = cv::getTextSize("480", kFont, _font_scale, 1, &baseline).width + _space;
+    const int digit_height = cv::getTextSize("0", kFont, _font_scale, 1, &baseline).height;
+    const cv::Size with_chart(box.width, box.height + (kChartLines + 1) * _line_height + kPadding);
+    const int plot_width = box.width - 2 * kPadding - label_width;
+    if (fits(with_chart) && plot_width >= kChartMinWidth)
     {
-        _scene.box = cv::Rect(cv::Point(kMargin, kMargin), box);
-        _scene.text.create(box, CV_8UC1);
+        _chart = true;
+        _scene.box.height = with_chart.height;
+        _chart_top = chart_top(fps);
+        _chart_frames = static_cast<size_t>(std::max(2.0, std::round(kChartSeconds * fps)));
+        const float x0 = static_cast<float>(kMargin + kPadding + label_width);
+        const float y0 = static_cast<float>(kMargin + box.height + _line_height + digit_height / 2);
+        _plot = cv::Rect2f(x0, y0, static_cast<float>(plot_width), static_cast<float>(kChartLines * _line_height - digit_height));
+        _chart_text = cv::Mat::zeros(_scene.box.size(), CV_8UC1);
+
+        const float thin = _size.width >= 1280 ? 0.5f : 0.4f;
+        const float thick = _size.width >= 1280 ? 1.0f : 0.75f;
+        // the grid: 0, 25, 50, 75, 100% of the top, the values at 0, 50 and 100%
+        for (int k = 0; k <= 4; ++k)
+        {
+            const float y = _plot.y + _plot.height * (1.0f - 0.25f * static_cast<float>(k));
+            _chart_segments.push_back(chart_segment(_plot.x, y, _plot.x + _plot.width, y, thin, kGridColor));
+            if (k % 2 != 0) continue;
+            const std::string value = format("%g", _chart_top * 0.25 * k);
+            const int width = cv::getTextSize(value, kFont, _font_scale, 1, &baseline).width;
+            const cv::Point at(static_cast<int>(_plot.x) - _space / 2 - width - kMargin, static_cast<int>(std::lround(y)) + digit_height / 2 - kMargin);
+            cv::putText(_chart_text, value, at, kFont, _font_scale, cv::Scalar(255), 1, cv::LINE_AA);
+        }
+        // the legend: framerate --- perceived smoothness ---   last 10 s
+        const int line = kLines;
+        const float sample_y = static_cast<float>(kMargin + kPadding / 2 + _line_height * (line + 1) - _line_height / 4 - digit_height / 2);
+        const float sample_length = 3.0f * static_cast<float>(_digit_width);
+        int x = _label(&_chart_text, kPadding, line, "framerate") + _space;
+        _chart_segments.push_back(chart_segment(static_cast<float>(kMargin + x), sample_y, static_cast<float>(kMargin + x) + sample_length, sample_y, thick, kFramerateColor));
+        x += static_cast<int>(sample_length) + 2 * _space;
+        x = _label(&_chart_text, x, line, "perceived smoothness") + _space;
+        _chart_segments.push_back(chart_segment(static_cast<float>(kMargin + x), sample_y, static_cast<float>(kMargin + x) + sample_length, sample_y, thick, kPerceivedColor));
+        x += static_cast<int>(sample_length) + 2 * _space;
+        _label(&_chart_text, x, line, "fps, last " + format("%g", kChartSeconds) + " s");
+    }
+    _scene.text.create(_scene.box.size(), CV_8UC1);
+}
+
+void MotionVideo::_add_chart()
+{
+    _scene.segments.insert(_scene.segments.end(), _chart_segments.begin(), _chart_segments.end());
+    // the framerate wider, under the perceived smoothness: where they are the same it shows at both sides
+    const float wide = _size.width >= 1280 ? 1.75f : 1.25f;
+    const float narrow = _size.width >= 1280 ? 0.75f : 0.5f;
+    const float right = _plot.x + _plot.width;
+    const float step = _plot.width / static_cast<float>(_chart_frames - 1);
+    const size_t count = _history.size();
+    for (const bool perceived : { false, true })
+    {
+        const cv::Vec3b & color = perceived ? kPerceivedColor : kFramerateColor;
+        const float thick = perceived ? narrow : wide;
+        // one column of pixels at a time: a line from the last value of the previous column to the first of this
+        // one, and one from the lowest to the highest within it (more frames than pixels)
+        bool open = false, have_previous = false;
+        int column = 0;
+        float first = 0.0f, last = 0.0f, low = 0.0f, high = 0.0f, previous_x = 0.0f, previous_y = 0.0f;
+        auto flush = [&]() {
+            if (!open) return;
+            const float x = static_cast<float>(column);
+            if (have_previous) _scene.segments.push_back(chart_segment(previous_x, previous_y, x, first, thick, color));
+            if (high > low || !have_previous) _scene.segments.push_back(chart_segment(x, low, x, high, thick, color));
+            have_previous = true;
+            previous_x = x;
+            previous_y = last;
+            open = false;
+        };
+        for (size_t k = 0; k < count; ++k)
+        {
+            const float value = perceived ? _history[k].second : _history[k].first;
+            if (std::isnan(value))
+            {
+                flush();
+                have_previous = false;
+                continue;
+            }
+            const float x = right - step * static_cast<float>(count - 1 - k);
+            const float y = _plot.y + _plot.height * (1.0f - static_cast<float>(std::clamp(static_cast<double>(value) / _chart_top, 0.0, 1.0)));
+            const int c = static_cast<int>(std::lround(x));
+            if (!open || c != column)
+            {
+                flush();
+                open = true;
+                column = c;
+                first = last = low = high = y;
+            }
+            else
+            {
+                last = y;
+                low = std::min(low, y);
+                high = std::max(high, y);
+            }
+        }
+        flush();
     }
 }
 
@@ -346,9 +490,17 @@ void MotionVideo::write(const MotionVideoFrame & values, const MotionDetail & de
     {
         _held.clear();
     }
+    if (_chart)
+    {
+        _history.emplace_back(static_cast<float>(values.framerate),
+                              values.sample.has_perceived_fps ? static_cast<float>(values.sample.perceived_fps) : std::nanf(""));
+        while (_history.size() > _chart_frames) _history.pop_front();
+        _add_chart();
+    }
     if (!_scene.box.empty())
     {
-        _scene.text.setTo(0);
+        if (_chart) _chart_text.copyTo(_scene.text);
+        else _scene.text.setTo(0);
         _text(&_scene.text, values, used, rejected, counted);
     }
     _target->write(detail, _scene);

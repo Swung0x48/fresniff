@@ -119,8 +119,9 @@ steps) and the candidates so far. Use it when the user asks how the resolution w
 be written in one run.
 
 `--motion-video` (implies `--motion`) also writes a copy of the video with the motion drawn on it: an arrow
-per tracked point, a red x where a match was rejected, and the values of every frame as text (new /
-duplicate, animation step, animation error, framerate, perceived smoothness). Use it when the user wants to
+per tracked point, a red x where a match was rejected, the values of every frame as text (new /
+duplicate, animation step, animation error, framerate, perceived smoothness), and under them a chart of the
+framerate (green) and the perceived smoothness (blue) of the last 10 seconds. Use it when the user wants to
 see what was measured, or to understand why a stretch could not be measured. `--arrow-scale 8` for slow
 motion, where the arrows would only be a pixel or two long.
 

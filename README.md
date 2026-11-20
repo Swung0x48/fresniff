@@ -372,6 +372,7 @@ writes a copy of the video that shows what the motion analysis saw, frame by fra
 | red x | a point whose match doesn't come back, it is not used |
 | nothing | no texture at the point |
 | text | the row of the frame: new / duplicate / torn, points used and rejected, animation step and the spread of its votes, animation error, framerate and perceived smoothness. With `--async-capture` also where a picture was lost |
+| chart | under the text: the framerate (green, wide) and the perceived smoothness (blue, narrow) of the last 10 seconds, the frame at the right edge, from 0 to the next common framerate at or above the recorded one (30, 60, 120, 144, 240, ...). Where both are the same the green shows at both sides of the blue. Left out on pictures too small for it |
 
 The video has the resolution the motion is measured at (the source divided by a whole number, 1920x1080 at
 most: 4K becomes 1080p; 1080x1920 at most for a video that is higher than wide: 1080x2400 becomes 540x1200)
@@ -392,9 +393,10 @@ the `vN motion video:` line says which it is:
 | builds without FFmpeg | on the CPU | what OpenCV can: MPEG-4 (`.mp4`, `.mkv`, `.mov`) or Motion JPEG (`.avi`) | |
 
 On the GPU a frame never leaves it: a compute shader scales it down into a picture that waits there until
-the analysis has the values of the frame (it looks ahead), a second one dims it and draws the arrows and
-the text box on it, and the result is copied into a frame of the encoder. Only the arrows, the text (four
-lines, rasterized on the CPU) and the encoded video cross between CPU and GPU. Both ways draw the same
+the analysis has the values of the frame (it looks ahead), a second one dims it and draws the arrows, the
+text box and the curves of the chart on it (the box darkens what is under it, the curves come after that),
+and the result is copied into a frame of the encoder. Only the lines, the text (rasterized on the CPU) and
+the encoded video cross between CPU and GPU. Both ways draw the same
 scene and look the same apart from the anti-aliasing of the lines.
 
 The pictures that wait take up to 200 MB at 4K 120 fps - of GPU memory, or of main memory when drawn on

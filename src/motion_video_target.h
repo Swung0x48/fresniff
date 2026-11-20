@@ -21,9 +21,12 @@ struct MotionVideoSegment {
     uint8_t blue = 0;
     uint8_t green = 0;
     uint8_t red = 0;
+    //! drawn after the text box was darkened (a chart in the box), not before it (an arrow under the box)
+    bool above_box = false;
 };
 
-//! what is drawn on the picture of a frame, in this order
+//! what is drawn on the picture of a frame, in this order: the picture dimmed, the segments that are not above_box,
+//! the text box darkened, the segments above_box, the text. Segments above_box come after all others in the list
 struct MotionVideoScene {
     //! brightness of the picture under everything else
     float dim = 1.0f;

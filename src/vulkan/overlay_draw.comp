@@ -2,8 +2,9 @@
 // Motion video: draws the scene of a frame on its picture (see overlay_base.comp for the layout of a picture).
 //
 // The picture is dimmed, the segments (lines with round ends, anti-aliased by their distance) are blended over
-// it in the order of the list, then the text box is darkened and gets the text in white. Everything happens
-// in YUV: dimming and blending are affine, so the result is the same as in RGB.
+// it in the order of the list, then the text box is darkened and gets the text in white. Segments with a
+// negative radius are drawn above the box: after it was darkened, before the text (they come last in the list).
+// Everything happens in YUV: dimming and blending are affine, so the result is the same as in RGB.
 //
 // The segments are sorted into tiles on the CPU: tiles[t] .. tiles[t + 1] is the range of tile t in the index
 // list, which follows the tile_count + 1 offsets. An invocation draws a block of 4x2 pixels, which lies in
@@ -79,16 +80,45 @@ void main()
     const uint tile = min(block_y * 2u / params.tile_size, params.tiles_y - 1u) * params.tiles_x
                     + min(block_x * 4u / params.tile_size, params.tiles_x - 1u);
     const uint last = tiles[tile + 1u];
-    for (uint entry = tiles[tile]; entry < last; ++entry)
+    bool box_darkened = false;
+    for (uint entry = tiles[tile]; ; ++entry)
     {
-        const Segment segment = segments[tiles[tile_count + 1u + entry]];
+        const bool more = entry < last;
+        Segment segment;
+        bool above = false;
+        if (more)
+        {
+            segment = segments[tiles[tile_count + 1u + entry]];
+            above = segment.look.x < 0.0;
+        }
+        // the text box is darkened before the first segment above it, or after the last segment
+        if (!box_darkened && (above || !more))
+        {
+            box_darkened = true;
+            if (params.box_width > 0u)
+            {
+                for (uint row = 0u; row < 2u; ++row)
+                {
+                    const uint y = block_y * 2u + row;
+                    if (y < params.box_y || y >= params.box_y + params.box_height) continue;
+                    for (uint k = 0u; k < 4u; ++k)
+                    {
+                        const uint x = block_x * 4u + k;
+                        if (x < params.box_x || x >= params.box_x + params.box_width) continue;
+                        color[row * 4u + k] = kBlack + (color[row * 4u + k] - kBlack) * params.box_dim;
+                    }
+                }
+            }
+        }
+        if (!more) break;
+        const float radius = abs(segment.look.x);
         for (uint row = 0u; row < 2u; ++row)
         {
             for (uint k = 0u; k < 4u; ++k)
             {
                 const vec2 p = vec2(float(block_x * 4u + k), float(block_y * 2u + row));
                 // solid up to the radius, fading out over the next pixel (about what OpenCV's anti-aliased lines cover)
-                const float coverage = clamp(segment.look.x + 1.0 - distance_to(p, segment.ends), 0.0, 1.0);
+                const float coverage = clamp(radius + 1.0 - distance_to(p, segment.ends), 0.0, 1.0);
                 color[row * 4u + k] = mix(color[row * 4u + k], segment.look.yzw, coverage);
             }
         }
@@ -106,8 +136,7 @@ void main()
                 if (x < params.box_x || x >= params.box_x + params.box_width) continue;
                 const uint index = (y - params.box_y) * params.text_row_words * 4u + (x - params.box_x);
                 const float coverage = float(byte_of(text[index >> 2], index & 3u)) / 255.0;
-                const vec3 darkened = kBlack + (color[row * 4u + k] - kBlack) * params.box_dim;
-                color[row * 4u + k] = mix(darkened, kWhite, coverage);
+                color[row * 4u + k] = mix(color[row * 4u + k], kWhite, coverage);
             }
         }
     }

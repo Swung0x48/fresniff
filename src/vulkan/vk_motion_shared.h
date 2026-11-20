@@ -307,7 +307,8 @@ inline void build_overlay_upload(const MotionVideoScene & scene, uint32_t width,
         data[1] = segment.y0;
         data[2] = segment.x1;
         data[3] = segment.y1;
-        data[4] = segment.radius;
+        // the sign tells overlay_draw.comp that the segment is drawn after the text box was darkened
+        data[4] = segment.above_box ? -std::max(segment.radius, 1e-3f) : segment.radius;
         if (bt709)
         {
             data[5] = 16.0f + (46.559f * r + 156.629f * g + 15.812f * b) / 255.0f;

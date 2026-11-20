@@ -1,7 +1,9 @@
 #pragma once
 
+#include <deque>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <opencv2/core.hpp>
@@ -31,6 +33,8 @@ struct MotionVideoFrame {
 //!   red x    a point whose match doesn't come back, it is not used
 //!   nothing  no texture at the point
 //! and the values of the frame in the upper left corner. The numbers have fixed places, so the text stands still.
+//! Under them a chart of the framerate and the perceived smoothness of the last seconds, the frame at its right
+//! edge, if the picture has room for it.
 //!
 //! This class decides what is drawn (MotionVideoScene), a MotionVideoTarget puts it on the picture and
 //! encodes it: the one of the pipeline if it draws on the GPU, otherwise the one for the CPU.
@@ -59,6 +63,8 @@ private:
     //! the four lines of values in the text box, returns the x position where the longest line ends
     int _text(cv::Mat * target, const MotionVideoFrame & values, int used, int rejected, bool counted) const;
     void _add_points(const std::vector<MotionPoint> & points, bool dimmed);
+    //! the curves of the chart, from _history
+    void _add_chart();
 
     std::string _path;
     cv::Size _size;
@@ -78,6 +84,20 @@ private:
     //! the points of the last new frame
     std::vector<MotionPoint> _held;
     MotionVideoScene _scene;
+
+    // the chart under the text: framerate and perceived smoothness of the last kChartSeconds (none if it doesn't fit)
+    bool _chart = false;
+    //! where the curves are drawn, in pixels of the picture
+    cv::Rect2f _plot;
+    //! the value at the top of the plot
+    double _chart_top = 60.0;
+    //! frames the plot shows
+    size_t _chart_frames = 0;
+    //! per frame of the plot, the oldest first: framerate, perceived smoothness (NaN: none)
+    std::deque<std::pair<float, float>> _history;
+    //! the labels of the chart, of the size of the box; the grid and the legend
+    cv::Mat _chart_text;
+    std::vector<MotionVideoSegment> _chart_segments;
 };
 
 //! the target that draws on MotionDetail::picture on the CPU and writes the file with make_video_writer
