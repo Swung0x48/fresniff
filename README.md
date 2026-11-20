@@ -141,6 +141,8 @@ lengthens the arrows for slow motion. The analysis is the same with and without 
 With Vulkan Video decoding the video is drawn and encoded on the GPU; otherwise it is drawn on the CPU and
 encoded with the first available H.264 encoder.
 
+![Motion video: tracked points as arrows, the values of the frame and the framerate chart](docs/motion-video.jpg)
+
 ### Captures that are not in step (`--async-capture`)
 
 A capture with its own clock records a picture at its next tick, up to one interval late, and may miss a
@@ -221,6 +223,8 @@ the camera sideways at an even speed over fine, irregular texture.
 `--resolution-data <file>` writes what the estimate is made of, and `scripts/resolution.py` plots it, so a
 recording can be judged by eye. `--resolution-video <file>` writes a copy of the video with the measured
 areas, the growing charts and the current candidates drawn on it.
+
+![Resolution video: the edge columns of a pan, the charts of the pixel grid, the pan and the stair steps, and the candidates](docs/resolution-video.jpg)
 
 ## Plotting
 
