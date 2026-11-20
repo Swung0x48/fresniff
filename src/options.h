@@ -17,6 +17,17 @@ constexpr int kLossyPixelDifference = 4;
 //! changed pixels per frame over the last 2 seconds). Encoders predict duplicate frames partly from the next
 //! frame, which leaks a few percent of it into them
 constexpr double kAutoToleranceRelative = 0.05;
+//! automatic tolerance at keyframes (--keyframe-tolerance): an encoder codes a duplicate anew there, which changes
+//! more of the picture than the noise of the other duplicates, up to 20% in a heavily compressed recording - with
+//! kAutoToleranceRelative alone some of them counted as new frames. A keyframe only counts as new if it changed more
+//! than kAutoToleranceIntra times the least of what the last kIntraNewFrames new frames changed. Measured on the
+//! 435 keyframes of four 4K HEVC recordings by OBS (a keyframe every 250 frames), a 4K 120 fps recording and three
+//! 1080p HEVC encodes, duplicates and new frames told apart by the motion: 210 of 214 duplicates below 0.5 (the
+//! rest 0.6 - 1.3, where the new frames before them changed little), 221 new frames from 0.88 up. Relative to the
+//! 90th percentile of the last 2 seconds a new frame at a keyframe was as low as 0.19, the frames right before it
+//! are the better measure
+constexpr double kAutoToleranceIntra = 0.5;
+constexpr size_t kIntraNewFrames = 3;
 //! automatic tolerance: kLossyTolerancePct is what the duplicates of a poor recording need. Where the recording is
 //! cleaner the minimum for frames follows its noise, so that small changes (a static camera with a few distant
 //! objects, a menu) still count: kAutoToleranceNoiseFactor times what the recent duplicates changed, between
@@ -52,6 +63,9 @@ struct VideoOptions {
     double tolerance_pct = -1.0;
     //! tolerance_pct is only the minimum, the tolerance follows the content (see kAutoToleranceRelative)
     bool tolerance_auto = false;
+    //! --keyframe-tolerance, with tolerance_auto: a keyframe only counts as new if it changed more than this times
+    //! the least of what the last kIntraNewFrames new frames changed (0: off, see kAutoToleranceIntra)
+    double keyframe_tolerance = kAutoToleranceIntra;
     //! tears smaller than this percentage (0 - 100) of the frame height are dismissed
     double dismiss_tear_percentage = 10.0;
     //! overrides the recorded framerate of the source (0 = read from the container)

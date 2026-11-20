@@ -66,6 +66,10 @@ analysis (single value for all videos, or comma separated per video, e.g. 0,5,0)
                                (default: 0; lossy codecs: automatic, at least 0.5 - less, down
                                to 0.05, where the duplicates of the recording change less -
                                and 5% of what new frames changed in the last 2 seconds)
+      --keyframe-tolerance <x> with the automatic tolerance: an encoder codes a duplicate anew at
+                               a keyframe, which can change a few % of the picture. A keyframe
+                               only counts as new if it changed more than x times the least of
+                               the last 3 new frames (0 - 1, 0: off; default: 0.5)
       --dismiss-tear-pct <%>   tears smaller than this percentage of the frame height are
                                dismissed (default: 10)
       --source-fps <fps>       override the recorded framerate of the container
@@ -290,6 +294,7 @@ bool parse_arguments(int argc, char ** argv, Options & options)
     PerVideoValue pixel_diff { "--pixel-diff", {} };
     PerVideoValue dismiss    { "--dismiss-tear-pct", {} };
     PerVideoValue tolerance  { "--tolerance-pct", {} };
+    PerVideoValue keyframe_tolerance { "--keyframe-tolerance", {} };
     PerVideoValue source_fps { "--source-fps", {} };
     PerVideoValue resolution_grid_rows { "--resolution-grid-rows", {} };
     PerVideoValue resolution_pan_rows { "--resolution-pan-rows", {} };
@@ -317,6 +322,7 @@ bool parse_arguments(int argc, char ** argv, Options & options)
         else if (arg == "--pixel-diff") { pixel_diff.values = split(next(), ','); }
         else if (arg == "--dismiss-tear-pct") { dismiss.values = split(next(), ','); }
         else if (arg == "--tolerance-pct") { tolerance.values = split(next(), ','); }
+        else if (arg == "--keyframe-tolerance") { keyframe_tolerance.values = split(next(), ','); }
         else if (arg == "--source-fps") { source_fps.values = split(next(), ','); }
         else if (arg == "--no-vk") { options.use_vulkan = false; }
         else if (arg == "--motion") { options.motion = true; }
@@ -449,6 +455,11 @@ bool parse_arguments(int argc, char ** argv, Options & options)
         const double value = parse_double(text, "--tolerance-pct");
         if (value < 0.0 || value >= 100.0) throw std::invalid_argument("--tolerance-pct must be >= 0 and < 100");
         v.tolerance_pct = value;
+    });
+    apply_per_video(keyframe_tolerance, options.videos, [](VideoOptions & v, const std::string & text) {
+        const double value = parse_double(text, "--keyframe-tolerance");
+        if (value < 0.0 || value > 1.0) throw std::invalid_argument("--keyframe-tolerance must be between 0 and 1");
+        v.keyframe_tolerance = value;
     });
     apply_per_video(dismiss, options.videos, [](VideoOptions & v, const std::string & text) {
         const double value = parse_double(text, "--dismiss-tear-pct");
@@ -1064,7 +1075,8 @@ int run(const Options & options)
                        , sources.frame_width(i), sources.frame_height(i), sources.codec_name(i).c_str()
                        , format_number(recorded_framerates[i]).c_str(), sources.reported_frame_count(i)
                        , video_options[i].pixel_difference
-                       , (video_options[i].tolerance_auto ? "auto" : format_number(video_options[i].tolerance_pct)).c_str()
+                       , (video_options[i].tolerance_auto ? "auto, keyframe-tolerance " + format_number(video_options[i].keyframe_tolerance)
+                                                          : format_number(video_options[i].tolerance_pct)).c_str()
                        , format_number(video_options[i].dismiss_tear_percentage).c_str()
                        , automatic[i].c_str());
         }

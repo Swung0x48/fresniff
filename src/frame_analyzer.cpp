@@ -76,6 +76,7 @@ FrameAnalyzer::FrameAnalyzer(const std::vector<int> & recorded_framerates)
     _last_changed_shares.assign(kMaxVideoCount, 0.0);
     _share_history.resize(kMaxVideoCount);
     _noise_history.resize(kMaxVideoCount);
+    _new_share_history.resize(kMaxVideoCount);
 }
 
 void FrameAnalyzer::process(const std::vector<RowCounts> & row_counts, const std::vector<VideoOptions> & video_options)
@@ -147,8 +148,19 @@ void FrameAnalyzer::process(const std::vector<RowCounts> & row_counts, const std
             const auto reference = _sorted_shares.begin() + static_cast<std::ptrdiff_t>(0.9 * static_cast<double>(_sorted_shares.size() - 1));
             std::nth_element(_sorted_shares.begin(), reference, _sorted_shares.end());
             tolerance = std::max(tolerance, kAutoToleranceRelative * *reference);
+            // keyframes: relative to the last few new frames, a duplicate coded anew changes far less than they did
+            std::deque<double> & new_shares = _new_share_history[i];
+            if (counts.coding == FrameCoding::Intra && new_shares.size() >= kIntraNewFrames)
+            {
+                tolerance = std::max(tolerance, video_options[i].keyframe_tolerance * *std::min_element(new_shares.begin(), new_shares.end()));
+            }
 
             frame_changed = _last_changed_shares[i] > tolerance;
+            if (frame_changed)
+            {
+                new_shares.push_back(_last_changed_shares[i]);
+                if (new_shares.size() > kIntraNewFrames) new_shares.pop_front();
+            }
             if (predicted && !frame_changed)
             {
                 noise.push_back(_last_changed_shares[i]);

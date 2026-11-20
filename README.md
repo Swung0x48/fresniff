@@ -33,6 +33,7 @@ trdrop-pp [options] <video> [<video> [<video>]]
 | `--tears <file>` | additional CSV with one row per detected tear |
 | `--pixel-diff <0-255>` | grayscale difference a pixel may have without counting as different (default `0`, lossy codecs `4`) |
 | `--tolerance-pct <%>` | for [lossy codecs](#lossy-recordings): a frame only counts as new if more than this percentage of its pixels is different (default `0`, lossy codecs: automatic) |
+| `--keyframe-tolerance <x>` | with the automatic tolerance: a [keyframe](#keyframes) only counts as new if it changed more than x times the least of the last 3 new frames (`0` - `1`, `0`: off, default `0.5`) |
 | `--dismiss-tear-pct <%>` | tears smaller than this percentage of the frame height are dismissed (default `10`) |
 | `--source-fps <fps>` | override the recorded framerate of the container |
 | `--max-frames <n>` | stop after n frames |
@@ -55,7 +56,7 @@ trdrop-pp [options] <video> [<video> [<video>]]
 | `--list-vkdevices` | list the Vulkan devices with their `--vkdevice` index and exit. Vulkan builds only |
 | `--decode <mode>` | `auto` (default: the fastest), `vulkan`, `ffmpeg` or `opencv`, see [GPU decoding](#ffmpeg--vulkan-video-gpu-decoding). FFmpeg builds only |
 
-`--pixel-diff`, `--tolerance-pct`, `--dismiss-tear-pct`, `--source-fps`, `--resolution-grid-rows` and `--resolution-pan-rows` take a single value for all videos or
+`--pixel-diff`, `--tolerance-pct`, `--keyframe-tolerance`, `--dismiss-tear-pct`, `--source-fps`, `--resolution-grid-rows` and `--resolution-pan-rows` take a single value for all videos or
 comma separated values per video, e.g. `--pixel-diff 0,5,0`.
 
 Only the CSV is written to stdout, progress / input info / summary go to stderr, so the output
@@ -147,9 +148,8 @@ Without the option the codec decides (printed in the `vN:` line):
   * a decoder that tells which frames are keyframes. FFmpeg decoding does (`--decode vulkan` and `ffmpeg`),
     `--decode opencv` doesn't and stays at 0.5% - that is also what a video without an 8-bit YUV format
     (10-bit, HDR) is decoded with; the Android app was not checked. Keyframes are coded anew, a duplicate
-    changes 0.1 - 10% of the picture there, so they keep 0.5% (as does a recording that consists of keyframes
-    only, e.g. MJPEG): a small change that falls on a keyframe is missed, and a duplicate on one may count
-    as a new frame (as before)
+    changes 0.1 - 20% of the picture there, so they keep 0.5% (as does a recording that consists of keyframes
+    only, e.g. MJPEG) and have a rule of their own, see [keyframes](#keyframes)
 
   Measured on a 1080p240 capture of a replay with 9211 new frames in 22849 - among them 58 from 0.6 seconds
   of a static camera with distant cars, which change 0.2 - 0.4% of the picture - and on re-encodes of it.
@@ -168,6 +168,36 @@ Without the option the codec decides (printed in the `vN:` line):
   In the constant quality re-encodes all wrongly new frames are duplicates on keyframes. `motion_ball_small`
   (`tools/make_ball_videos.py`: 20 fps in 60, the ball changes 0.2% of the picture) reads 20 fps after its
   first half second, and 0 fps with 0.5% throughout.
+
+### Keyframes
+
+At a keyframe the encoder codes the whole picture anew, also where the source repeated a picture: such a
+duplicate changes far more pixels than the other duplicates - 2 - 3% in a 4K HEVC recording by OBS at 50 Mbit/s,
+up to 20% in a heavily compressed one - and with the tolerance above alone it may count as a new frame. OBS puts
+a keyframe every 250 frames, so a 30 fps game recorded at 60 fps had 1 second at 31 fps every 4.2 s, in the
+stretches where the keyframes fell on the duplicates.
+
+With the automatic tolerance a keyframe therefore only counts as new if it changed more than
+`--keyframe-tolerance` (default `0.5`) times the least of what the last 3 new frames changed: a duplicate stays
+far below the new frames right before it, a new frame changes about as much as they did. Measured on the 435
+keyframes of four 4K HEVC recordings by OBS (PS5 Pro, 30 fps), a 4K 120 fps recording and three 1080p HEVC encodes,
+told apart by the motion (`--motion`: a duplicate has no animation step):
+
+| keyframe | changed, times the least of the last 3 new frames |
+| --- | --- |
+| duplicate (214) | 210 below 0.5, the highest 0.46; 4 at 0.6 - 1.3, where the new frames before them changed little |
+| new frame (221) | 0.88 and more |
+
+| `--keyframe-tolerance` | duplicates below it | new frames below it |
+| --- | --- | --- |
+| 0.25 | 195 / 214 | 0 / 221 |
+| 0.5 | 210 / 214 | 0 / 221 |
+| 0.75 | 212 / 214 | 0 / 221 |
+
+Compared with the 90th percentile of the last 2 seconds (what the rest of the automatic tolerance uses) a new
+frame at a keyframe was as low as 0.19, where the motion had just slowed down - the frames right before it are the
+better measure. A new frame at a keyframe that changes less than half of what the 3 before it did (the camera
+stops right there) counts as a duplicate; `--keyframe-tolerance 0` turns the rule off.
 
 H.264 / HEVC / AV1 are always treated as lossy, also if they were encoded in a lossless mode: pass
 `--lossless` then (the same as `--tolerance-pct 0 --pixel-diff 0`, and it tells `--resolution` too). The
