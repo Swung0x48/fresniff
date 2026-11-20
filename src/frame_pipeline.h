@@ -32,8 +32,9 @@ public:
     //! submit_next(). throws std::runtime_error if the pipeline can't do it
     virtual void enable_motion();
     //! also keep the picture and the tracked points of every frame (RowCounts::detail), after enable_motion().
+    //! native: the picture at the resolution of the frame instead of the motion's (video_picture_size).
     //! throws std::runtime_error if the pipeline can't do it
-    virtual void enable_motion_detail();
+    virtual void enable_motion_detail(bool native = false);
     //! also measure what the render resolution is estimated from (RowCounts::resolution), after enable_motion()
     //! and before the first submit_next(). throws std::runtime_error if the pipeline can't do it
     virtual void enable_resolution();

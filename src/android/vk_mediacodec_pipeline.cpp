@@ -170,7 +170,12 @@ public:
 
     void enable_motion() override { _motion = true; }
     //! the points of every frame are kept; the pictures stay on the GPU (start_motion_video)
-    void enable_motion_detail() override { _motion_detail = true; }
+    void enable_motion_detail(bool native) override
+    {
+        // the pictures stay at the resolution of the motion: MediaCodec encoders of phones often stop at 1080p or 4K30
+        if (native) throw std::runtime_error("--motion-video-native is not available in the Android app");
+        _motion_detail = true;
+    }
 
     //! The frames never reach the memory, so there is no drawing on the CPU to fall back to: if the video can't
     //! be made on the GPU the analysis stops, it can be run on the CPU instead (--decode ffmpeg)

@@ -44,8 +44,10 @@ public:
     //! arrow_scale: the arrows are drawn this many times longer than the motion,
     //! target: where the frames go, nullptr: drawn on the CPU and written to `path`.
     //! throws std::runtime_error if the file can't be written
+    //! native: the picture at the resolution of the frames (--motion-video-native), the arrows, the text and the
+    //! chart drawn as much larger as the frames are than the motion
     MotionVideo(const std::string & path, int frame_width, int frame_height, double fps, double arrow_scale,
-                std::unique_ptr<MotionVideoTarget> target);
+                std::unique_ptr<MotionVideoTarget> target, bool native = false);
 
     const std::string & path() const { return _path; }
     cv::Size size() const { return _size; }
@@ -67,12 +69,18 @@ private:
     void _add_chart();
 
     std::string _path;
+    //! of the picture; of the motion (the points are in its pixels); the one over the other
     cv::Size _size;
+    cv::Size _measured;
+    float _k = 1.0f;
     double _arrow_scale;
     std::unique_ptr<MotionVideoTarget> _target;
     long long _frames = 0;
 
     // text layout
+    int _margin = 8;
+    int _padding = 10;
+    int _thickness = 1;
     double _font_scale = 0.6;
     int _digit_width = 0;
     int _space = 0;

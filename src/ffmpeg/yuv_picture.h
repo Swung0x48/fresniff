@@ -24,7 +24,7 @@ struct YuvPlanes {
 //! the planes of a frame decoded on the CPU
 YuvPlanes yuv_planes(const AVFrame * frame);
 
-//! the frame as I420 at the resolution the motion is measured at (MotionDetail::picture)
-void motion_picture(const YuvPlanes & planes, cv::Mat & picture, cv::Mat & scratch);
+//! the frame as I420 at the resolution the motion is measured at, or (native) at its own (MotionDetail::picture)
+void motion_picture(const YuvPlanes & planes, cv::Mat & picture, cv::Mat & scratch, bool native);
 
 } // namespace trdrop::ffmpeg

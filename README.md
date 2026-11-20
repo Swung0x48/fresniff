@@ -40,6 +40,7 @@ trdrop-pp [options] <video> [<video> [<video>]]
 | `--motion` | [motion analysis](#motion-analysis---motion): animation step, animation error and perceived smoothness |
 | `--motion-window <ms>` | fixed length of the window the motion of a frame is compared to (default: 400, longer for low framerates) |
 | `--motion-video <file>` | `--motion`, and write a [copy of the video with the motion drawn on it](#motion-video---motion-video) (`.mp4`, `.mkv`, `.mov`; one file per input video, comma separated) |
+| `--motion-video-native` | the motion video at the resolution of the input (4K stays 4K) instead of the motion's (1080p at most); the analysis is the same |
 | `--arrow-scale <x>` | draw the arrows of the motion video x times longer (default `1`) |
 | `--async-capture` | `--motion` for a [capture that didn't run in step with the game's output](#captures-that-are-not-in-step---async-capture): pictures recorded an interval late don't count as animation error, pictures the capture lost are counted in |
 | `--ignore-clock-skew` | filter only what [a 59.94 Hz source recorded at 60 fps](#clock-skew---ignore-clock-skew) does every 16.7 s (pictures recorded alternately early and late, an interval too many), everything else stays |
@@ -377,6 +378,9 @@ writes a copy of the video that shows what the motion analysis saw, frame by fra
 The video has the resolution the motion is measured at (the source divided by a whole number, 1920x1080 at
 most: 4K becomes 1080p; 1080x1920 at most for a video that is higher than wide: 1080x2400 becomes 540x1200)
 and the framerate of the source; the picture is darkened so the arrows stand out.
+`--motion-video-native` writes it at the resolution of the source instead (4K stays 4K): the analysis is the
+same, the arrows, the text and the chart are drawn as much larger. The pictures that wait take 4 times the
+memory (4K), the file is about 4 times as large, and it can't be combined with `--resolution-video`.
 `--arrow-scale 8` draws the arrows 8 times longer, for slow motion where they would be a pixel or two.
 With several input videos give one file each, comma separated; an empty name skips a video
 (`--motion-video ,b.mp4`).

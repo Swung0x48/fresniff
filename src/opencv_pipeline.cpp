@@ -51,7 +51,7 @@ void FramePipeline::enable_resolution()
     throw std::runtime_error("the resolution analysis is not available with " + description());
 }
 
-void FramePipeline::enable_motion_detail()
+void FramePipeline::enable_motion_detail(bool)
 {
     throw std::runtime_error("the motion video is not available with " + description());
 }
@@ -85,8 +85,8 @@ public:
                 {
                     details[i] = std::make_shared<MotionDetail>();
                     // the picture at the resolution of the motion, cut to an even size
-                    const int scale = motion_scale(frames[i].cols, frames[i].rows);
-                    const cv::Size size = motion_picture_size(frames[i].cols, frames[i].rows);
+                    const int scale = video_picture_scale(frames[i].cols, frames[i].rows, _native_pictures);
+                    const cv::Size size = video_picture_size(frames[i].cols, frames[i].rows, _native_pictures);
                     if (scale > 1) cv::resize(frames[i], _small, cv::Size(frames[i].cols / scale, frames[i].rows / scale), 0, 0, cv::INTER_AREA);
                     const cv::Mat & source = scale > 1 ? _small : frames[i];
                     cv::cvtColor(source(cv::Rect(0, 0, size.width, size.height)), details[i]->picture, cv::COLOR_BGR2YUV_I420);
@@ -133,7 +133,11 @@ public:
     }
 
     void enable_motion() override { _motion.resize(_sources.count()); }
-    void enable_motion_detail() override { _motion_detail = true; }
+    void enable_motion_detail(bool native) override
+    {
+        _motion_detail = true;
+        _native_pictures = native;
+    }
     void enable_resolution() override
     {
         if (_motion.empty()) throw std::logic_error("the resolution analysis needs the motion analysis");
@@ -158,6 +162,8 @@ private:
     std::vector<MotionEstimator> _motion;
     std::deque<std::vector<MotionField>> _motion_queue;
     bool _motion_detail = false;
+    //! --motion-video-native: the pictures at the resolution of the frames
+    bool _native_pictures = false;
     std::deque<std::vector<std::shared_ptr<MotionDetail>>> _detail_queue;
     bool _resolution = false;
     std::deque<std::vector<std::shared_ptr<ResolutionFrame>>> _resolution_queue;

@@ -237,7 +237,11 @@ public:
         _motion = true;
     }
 
-    void enable_motion_detail() override { _motion_detail = true; }
+    void enable_motion_detail(bool native) override
+    {
+        _motion_detail = true;
+        _native_pictures = native;
+    }
 
     std::string warning() const override
     {
@@ -275,7 +279,7 @@ public:
             if (gpu.active) throw std::logic_error("the videos of an input are started together");
             const AVFrame * frame = _videos.at(index).first_frame;
             if (!frame) throw std::logic_error("the motion video has to be started before the first frame");
-            const cv::Size size = motion_picture_size(frame->width, frame->height);
+            const cv::Size size = video_picture_size(frame->width, frame->height, _native_pictures);
             for (const std::string & path : paths)
             {
                 gpu.streams.emplace_back();
@@ -390,7 +394,7 @@ public:
             slot_video.picture = -1;
             if (gpu.active)
             {
-                if (motion_picture_size(frame->width, frame->height) != cv::Size(static_cast<int>(gpu.width), static_cast<int>(gpu.height)))
+                if (video_picture_size(frame->width, frame->height, _native_pictures) != cv::Size(static_cast<int>(gpu.width), static_cast<int>(gpu.height)))
                 {
                     throw std::runtime_error("the size of the frames changed, the motion video can't be drawn on the GPU");
                 }
@@ -714,7 +718,7 @@ public:
             push.width = gpu.width;
             push.height = gpu.height;
             push.row_words = gpu.row_words;
-            push.scale = static_cast<uint32_t>(motion_scale(slot_video.width, slot_video.height));
+            push.scale = static_cast<uint32_t>(video_picture_scale(slot_video.width, slot_video.height, _native_pictures));
             push.luma_row_words = plan.luma_row_words;
             push.chroma_mode = static_cast<uint32_t>(plan.layout.chroma);
             push.chroma_row_bytes = plan.chroma_row_bytes;
@@ -1258,7 +1262,7 @@ private:
         planes.stride[1] = plan.chroma_row_bytes;
         planes.data[2] = planes.data[1] + plan.v_offset;
         planes.stride[2] = plan.chroma_row_bytes;
-        ffmpeg::motion_picture(planes, picture, _scratch);
+        ffmpeg::motion_picture(planes, picture, _scratch, _native_pictures);
     }
 
     //! the tracked points of a frame as the median motion per grid cell, and one by one if `detail` is given
@@ -2026,6 +2030,8 @@ private:
     bool _motion = false;
     //! motion video: the picture and the points of every frame are kept
     bool _motion_detail = false;
+    //! --motion-video-native: the pictures at the resolution of the frames
+    bool _native_pictures = false;
     cv::Mat _scratch;
     // ... or drawn on the GPU
     std::vector<GpuVideo> _gpu_videos;

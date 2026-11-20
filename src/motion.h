@@ -137,7 +137,8 @@ struct MotionPoint {
 
 //! what the motion video shows of a frame
 struct MotionDetail {
-    //! the frame at the resolution the motion is measured at (see motion_picture_size), as I420: the Y plane
+    //! the frame at the resolution the motion is measured at (see motion_picture_size; with --motion-video-native
+    //! at its own, see video_picture_size), as I420: the Y plane
     //! followed by the U and V planes of half the size, rows * 3 / 2 rows of 8-bit values
     cv::Mat picture;
     //! instead of `picture` if the pipeline draws the motion video on the GPU: its handle of the frame's picture
@@ -151,6 +152,10 @@ struct MotionDetail {
 int motion_scale(int width, int height);
 //! size of MotionDetail::picture for a frame: the resolution the motion is measured at, made even
 cv::Size motion_picture_size(int width, int height);
+//! the pictures of the motion video: scaled down as the motion (motion_scale, motion_picture_size), or with
+//! --motion-video-native at the frame's own resolution (made even). The tracked points stay in pixels of the motion
+int video_picture_scale(int width, int height, bool native);
+cv::Size video_picture_size(int width, int height, bool native);
 
 //! Measures the motion between consecutive frames on the CPU: the points of the grid are tracked from the
 //! previous frame into the current one and back (pyramidal Lucas-Kanade, sub pixel accurate) at the resolution

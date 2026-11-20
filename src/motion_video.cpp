@@ -182,14 +182,20 @@ std::unique_ptr<MotionVideoTarget> make_cpu_motion_video_target(const std::strin
 }
 
 MotionVideo::MotionVideo(const std::string & path, int frame_width, int frame_height, double fps, double arrow_scale,
-                         std::unique_ptr<MotionVideoTarget> target)
+                         std::unique_ptr<MotionVideoTarget> target, bool native)
     : _path(path)
-    , _size(motion_picture_size(frame_width, frame_height))
+    , _size(video_picture_size(frame_width, frame_height, native))
+    , _measured(motion_picture_size(frame_width, frame_height))
+    , _k(static_cast<float>(motion_scale(frame_width, frame_height) / video_picture_scale(frame_width, frame_height, native)))
     , _arrow_scale(arrow_scale)
     , _target(std::move(target))
 {
     if (_size.width < 2 || _size.height < 2) throw std::runtime_error("the video is too small for a motion video");
     if (!_target) _target = make_cpu_motion_video_target(path, _size, fps);
+    // everything is laid out as at the motion's resolution and drawn _k times larger
+    _margin = static_cast<int>(std::lround(kMargin * _k));
+    _padding = static_cast<int>(std::lround(kPadding * _k));
+    _thickness = std::max(1, static_cast<int>(std::lround(_k)));
 
     cv::Mat ramp(256, 1, CV_8UC1), colors;
     for (int i = 0; i < 256; ++i) ramp.at<uchar>(i) = static_cast<uchar>(i);
@@ -197,17 +203,17 @@ MotionVideo::MotionVideo(const std::string & path, int frame_width, int frame_he
     for (int i = 0; i < 256; ++i) _colors.push_back(colors.at<cv::Vec3b>(i));
 
     // the text: smaller for small pictures, every digit gets the width of the widest one
-    _font_scale = std::clamp(0.6 * _size.width / 1280.0, 0.4, 0.6);
+    _font_scale = std::clamp(0.6 * _measured.width / 1280.0, 0.4, 0.6) * _k;
     int baseline = 0;
     for (char digit = '0'; digit <= '9'; ++digit)
     {
-        _digit_width = std::max(_digit_width, cv::getTextSize(std::string(1, digit), kFont, _font_scale, 1, &baseline).width);
+        _digit_width = std::max(_digit_width, cv::getTextSize(std::string(1, digit), kFont, _font_scale, _thickness, &baseline).width);
     }
     _space = _digit_width;
     _line_height = static_cast<int>(std::lround(42.0 * _font_scale));
     for (const char * state : { "new", "duplicate", "torn", "first frame" })
     {
-        _state_width = std::max(_state_width, cv::getTextSize(state, kFont, _font_scale, 1, &baseline).width);
+        _state_width = std::max(_state_width, cv::getTextSize(state, kFont, _font_scale, _thickness, &baseline).width);
     }
     // the box holds the longest text there can be
     MotionVideoFrame widest;
@@ -216,32 +222,32 @@ MotionVideo::MotionVideo(const std::string & path, int frame_width, int frame_he
     widest.sample.has_error = true;
     widest.sample.has_perceived_fps = true;
     widest.sample.lost = 1;
-    const cv::Size box(_text(nullptr, widest, 0, 0, true) + kPadding, kLines * _line_height + kPadding);
+    const cv::Size box(_text(nullptr, widest, 0, 0, true) + _padding, kLines * _line_height + _padding);
     _scene.dim = kDim;
     _scene.box_dim = kBoxDim;
-    auto fits = [&](const cv::Size & size) { return size.width <= _size.width - 2 * kMargin && size.height <= _size.height - 2 * kMargin; };
+    auto fits = [&](const cv::Size & size) { return size.width <= _size.width - 2 * _margin && size.height <= _size.height - 2 * _margin; };
     // no text on pictures it doesn't fit on
     if (!fits(box)) return;
-    _scene.box = cv::Rect(cv::Point(kMargin, kMargin), box);
+    _scene.box = cv::Rect(cv::Point(_margin, _margin), box);
 
     // the chart: a line for the legend, the plot with the values at its left, room for the label at its bottom
-    const int label_width = cv::getTextSize("480", kFont, _font_scale, 1, &baseline).width + _space;
-    const int digit_height = cv::getTextSize("0", kFont, _font_scale, 1, &baseline).height;
-    const cv::Size with_chart(box.width, box.height + (kChartLines + 1) * _line_height + kPadding);
-    const int plot_width = box.width - 2 * kPadding - label_width;
-    if (fits(with_chart) && plot_width >= kChartMinWidth)
+    const int label_width = cv::getTextSize("480", kFont, _font_scale, _thickness, &baseline).width + _space;
+    const int digit_height = cv::getTextSize("0", kFont, _font_scale, _thickness, &baseline).height;
+    const cv::Size with_chart(box.width, box.height + (kChartLines + 1) * _line_height + _padding);
+    const int plot_width = box.width - 2 * _padding - label_width;
+    if (fits(with_chart) && plot_width >= kChartMinWidth * _k)
     {
         _chart = true;
         _scene.box.height = with_chart.height;
         _chart_top = chart_top(fps);
         _chart_frames = static_cast<size_t>(std::max(2.0, std::round(kChartSeconds * fps)));
-        const float x0 = static_cast<float>(kMargin + kPadding + label_width);
-        const float y0 = static_cast<float>(kMargin + box.height + _line_height + digit_height / 2);
+        const float x0 = static_cast<float>(_margin + _padding + label_width);
+        const float y0 = static_cast<float>(_margin + box.height + _line_height + digit_height / 2);
         _plot = cv::Rect2f(x0, y0, static_cast<float>(plot_width), static_cast<float>(kChartLines * _line_height - digit_height));
         _chart_text = cv::Mat::zeros(_scene.box.size(), CV_8UC1);
 
-        const float thin = _size.width >= 1280 ? 0.5f : 0.4f;
-        const float thick = _size.width >= 1280 ? 1.0f : 0.75f;
+        const float thin = (_measured.width >= 1280 ? 0.5f : 0.4f) * _k;
+        const float thick = (_measured.width >= 1280 ? 1.0f : 0.75f) * _k;
         // the grid: 0, 25, 50, 75, 100% of the top, the values at 0, 50 and 100%
         for (int k = 0; k <= 4; ++k)
         {
@@ -249,19 +255,19 @@ MotionVideo::MotionVideo(const std::string & path, int frame_width, int frame_he
             _chart_segments.push_back(chart_segment(_plot.x, y, _plot.x + _plot.width, y, thin, kGridColor));
             if (k % 2 != 0) continue;
             const std::string value = format("%g", _chart_top * 0.25 * k);
-            const int width = cv::getTextSize(value, kFont, _font_scale, 1, &baseline).width;
-            const cv::Point at(static_cast<int>(_plot.x) - _space / 2 - width - kMargin, static_cast<int>(std::lround(y)) + digit_height / 2 - kMargin);
-            cv::putText(_chart_text, value, at, kFont, _font_scale, cv::Scalar(255), 1, cv::LINE_AA);
+            const int width = cv::getTextSize(value, kFont, _font_scale, _thickness, &baseline).width;
+            const cv::Point at(static_cast<int>(_plot.x) - _space / 2 - width - _margin, static_cast<int>(std::lround(y)) + digit_height / 2 - _margin);
+            cv::putText(_chart_text, value, at, kFont, _font_scale, cv::Scalar(255), _thickness, cv::LINE_AA);
         }
         // the legend: framerate --- perceived smoothness ---   last 10 s
         const int line = kLines;
-        const float sample_y = static_cast<float>(kMargin + kPadding / 2 + _line_height * (line + 1) - _line_height / 4 - digit_height / 2);
+        const float sample_y = static_cast<float>(_margin + _padding / 2 + _line_height * (line + 1) - _line_height / 4 - digit_height / 2);
         const float sample_length = 3.0f * static_cast<float>(_digit_width);
-        int x = _label(&_chart_text, kPadding, line, "framerate") + _space;
-        _chart_segments.push_back(chart_segment(static_cast<float>(kMargin + x), sample_y, static_cast<float>(kMargin + x) + sample_length, sample_y, thick, kFramerateColor));
+        int x = _label(&_chart_text, _padding, line, "framerate") + _space;
+        _chart_segments.push_back(chart_segment(static_cast<float>(_margin + x), sample_y, static_cast<float>(_margin + x) + sample_length, sample_y, thick, kFramerateColor));
         x += static_cast<int>(sample_length) + 2 * _space;
         x = _label(&_chart_text, x, line, "perceived smoothness") + _space;
-        _chart_segments.push_back(chart_segment(static_cast<float>(kMargin + x), sample_y, static_cast<float>(kMargin + x) + sample_length, sample_y, thick, kPerceivedColor));
+        _chart_segments.push_back(chart_segment(static_cast<float>(_margin + x), sample_y, static_cast<float>(_margin + x) + sample_length, sample_y, thick, kPerceivedColor));
         x += static_cast<int>(sample_length) + 2 * _space;
         _label(&_chart_text, x, line, "fps, last " + format("%g", kChartSeconds) + " s");
     }
@@ -272,8 +278,8 @@ void MotionVideo::_add_chart()
 {
     _scene.segments.insert(_scene.segments.end(), _chart_segments.begin(), _chart_segments.end());
     // the framerate wider, under the perceived smoothness: where they are the same it shows at both sides
-    const float wide = _size.width >= 1280 ? 1.75f : 1.25f;
-    const float narrow = _size.width >= 1280 ? 0.75f : 0.5f;
+    const float wide = (_measured.width >= 1280 ? 1.75f : 1.25f) * _k;
+    const float narrow = (_measured.width >= 1280 ? 0.75f : 0.5f) * _k;
     const float right = _plot.x + _plot.width;
     const float step = _plot.width / static_cast<float>(_chart_frames - 1);
     const size_t count = _history.size();
@@ -329,11 +335,11 @@ void MotionVideo::_add_chart()
 int MotionVideo::_label(cv::Mat * target, int x, int line, const std::string & text) const
 {
     int baseline = 0;
-    const int width = cv::getTextSize(text, kFont, _font_scale, 1, &baseline).width;
+    const int width = cv::getTextSize(text, kFont, _font_scale, _thickness, &baseline).width;
     if (target)
     {
-        const int y = kPadding / 2 + _line_height * (line + 1) - _line_height / 4;
-        cv::putText(*target, text, cv::Point(x, y), kFont, _font_scale, cv::Scalar(255), 1, cv::LINE_AA);
+        const int y = _padding / 2 + _line_height * (line + 1) - _line_height / 4;
+        cv::putText(*target, text, cv::Point(x, y), kFont, _font_scale, cv::Scalar(255), _thickness, cv::LINE_AA);
     }
     return x + width;
 }
@@ -343,15 +349,15 @@ int MotionVideo::_number(cv::Mat * target, int x, int line, int cells, const std
     const int end = x + cells * _digit_width;
     if (target)
     {
-        const int y = kPadding / 2 + _line_height * (line + 1) - _line_height / 4;
+        const int y = _padding / 2 + _line_height * (line + 1) - _line_height / 4;
         int baseline = 0;
         for (size_t k = 0; k < text.size(); ++k)
         {
             // from the right: the last character is in the last cell
             const std::string character(1, text[text.size() - 1 - k]);
-            const int width = cv::getTextSize(character, kFont, _font_scale, 1, &baseline).width;
+            const int width = cv::getTextSize(character, kFont, _font_scale, _thickness, &baseline).width;
             const int cell = end - static_cast<int>(k + 1) * _digit_width;
-            cv::putText(*target, character, cv::Point(cell + (_digit_width - width) / 2, y), kFont, _font_scale, cv::Scalar(255), 1, cv::LINE_AA);
+            cv::putText(*target, character, cv::Point(cell + (_digit_width - width) / 2, y), kFont, _font_scale, cv::Scalar(255), _thickness, cv::LINE_AA);
         }
     }
     return end;
@@ -359,7 +365,7 @@ int MotionVideo::_number(cv::Mat * target, int x, int line, int cells, const std
 
 int MotionVideo::_text(cv::Mat * target, const MotionVideoFrame & values, int used, int rejected, bool counted) const
 {
-    const int left = kPadding;
+    const int left = _padding;
     int widest = 0;
 
     // frame 1234   new   2104 points used   37 rejected   (arrows x8)
@@ -409,20 +415,24 @@ int MotionVideo::_text(cv::Mat * target, const MotionVideoFrame & values, int us
 
 void MotionVideo::_add_points(const std::vector<MotionPoint> & points, bool dimmed)
 {
-    const float thickness = _size.width >= 1280 ? 2.0f : 1.0f;
+    const float thickness = (_measured.width >= 1280 ? 2.0f : 1.0f) * _k;
+    const float cross = kCrossSize * _k;
     for (const MotionPoint & point : points)
     {
+        // the points are in pixels of the motion: the center of such a pixel in the picture
+        const float px = _k == 1.0f ? point.x : (point.x + 0.5f) * _k - 0.5f;
+        const float py = _k == 1.0f ? point.y : (point.y + 0.5f) * _k - 0.5f;
         if (point.state == MotionPoint::Rejected)
         {
             MotionVideoSegment arm;
-            arm.radius = 0.5f;
+            arm.radius = 0.5f * _k;
             arm.blue = 40;
             arm.green = 40;
             arm.red = 230;
-            arm.x0 = point.x - kCrossSize;
-            arm.y0 = point.y - kCrossSize;
-            arm.x1 = point.x + kCrossSize;
-            arm.y1 = point.y + kCrossSize;
+            arm.x0 = px - cross;
+            arm.y0 = py - cross;
+            arm.x1 = px + cross;
+            arm.y1 = py + cross;
             _scene.segments.push_back(arm);
             std::swap(arm.y0, arm.y1);
             _scene.segments.push_back(arm);
@@ -438,8 +448,8 @@ void MotionVideo::_add_points(const std::vector<MotionPoint> & points, bool dimm
         segment.blue = color[0];
         segment.green = color[1];
         segment.red = color[2];
-        segment.x0 = segment.x1 = point.x;
-        segment.y0 = segment.y1 = point.y;
+        segment.x0 = segment.x1 = px;
+        segment.y0 = segment.y1 = py;
         const double drawn = length * _arrow_scale;
         if (drawn < kShortestArrow)
         {
@@ -448,11 +458,11 @@ void MotionVideo::_add_points(const std::vector<MotionPoint> & points, bool dimm
             continue;
         }
         segment.radius = 0.5f * thickness;
-        segment.x1 = static_cast<float>(point.x + point.dx * _arrow_scale);
-        segment.y1 = static_cast<float>(point.y + point.dy * _arrow_scale);
+        segment.x1 = static_cast<float>(px + point.dx * _arrow_scale * _k);
+        segment.y1 = static_cast<float>(py + point.dy * _arrow_scale * _k);
         _scene.segments.push_back(segment);
         // the two lines of the tip, back from the end of the arrow
-        const double tip = std::min(0.5 * drawn, kTipLength);
+        const double tip = std::min(0.5 * drawn, kTipLength) * _k;
         const double angle = std::atan2(segment.y0 - segment.y1, segment.x0 - segment.x1);
         for (const double side : { CV_PI / 4.0, -CV_PI / 4.0 })
         {

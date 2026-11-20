@@ -97,6 +97,10 @@ motion (smoothness of the animation, needs coherent motion like a moving camera)
                                the name asks for (.mp4, .mkv, .mov). One file per input video,
                                comma separated. With Vulkan Video decoding it is drawn and
                                encoded on the GPU, otherwise on the CPU
+      --motion-video-native    the motion video at the resolution of the input video (4K
+                               stays 4K) instead of the motion's; the analysis is the same.
+                               Larger files, more memory for the pictures that wait; not
+                               together with --resolution-video
       --arrow-scale <x>        draw the arrows of the motion video x times longer (default: 1,
                                the real motion; e.g. 8 for slow motion)
       --async-capture          --motion for a capture that didn't run in step with the game's
@@ -347,6 +351,7 @@ bool parse_arguments(int argc, char ** argv, Options & options)
             resolution_grid_rows.values = split(next(), ',');
         }
         else if (arg == "--motion-video") { options.motion = true; options.motion_videos = split(next(), ','); }
+        else if (arg == "--motion-video-native") { options.motion_video_native = true; }
         else if (arg == "--resolution-data")
         {
             options.motion = true;
@@ -443,6 +448,17 @@ bool parse_arguments(int argc, char ** argv, Options & options)
     if (options.resolution_videos.size() > options.inputs.size())
     {
         throw std::invalid_argument("--resolution-video: more files than videos");
+    }
+    if (options.motion_video_native)
+    {
+        bool any = false;
+        for (const std::string & path : options.motion_videos) any |= !path.empty();
+        if (!any) throw std::invalid_argument("--motion-video-native needs --motion-video");
+        // the pictures of every input are made at its resolution, the resolution video is drawn at the motion's
+        for (const std::string & path : options.resolution_videos)
+        {
+            if (!path.empty()) throw std::invalid_argument("--motion-video-native: not together with --resolution-video");
+        }
     }
 
     apply_per_video(pixel_diff, options.videos, [](VideoOptions & v, const std::string & text) {
@@ -1027,7 +1043,10 @@ int run(const Options & options, std::vector<std::vector<StoredValues>> * export
     std::unique_ptr<FramePipeline> pipeline_owner = make_pipeline(options);
     FramePipeline & pipeline = *pipeline_owner;
     if (options.motion) pipeline.enable_motion();
-    if (!options.motion_videos.empty() || !options.resolution_videos.empty()) pipeline.enable_motion_detail();
+    if (!options.motion_videos.empty() || !options.resolution_videos.empty())
+    {
+        pipeline.enable_motion_detail(options.motion_video_native && !options.motion_videos.empty());
+    }
     if (options.resolution) pipeline.enable_resolution();
     const FramePipeline & sources = pipeline;
     const size_t video_count = sources.count();
@@ -1120,7 +1139,8 @@ int run(const Options & options, std::vector<std::vector<StoredValues>> * export
         if (!motion_path.empty())
         {
             motion_videos[i] = std::make_unique<MotionVideo>(motion_path, sources.frame_width(i), sources.frame_height(i)
-                                                           , recorded_framerates[i], options.arrow_scale, take_target());
+                                                           , recorded_framerates[i], options.arrow_scale, take_target()
+                                                           , options.motion_video_native);
             if (!options.quiet)
             {
                 std::fprintf(stderr, "v%zu motion video: %s (%dx%d, %s)\n", i + 1, motion_videos[i]->path().c_str()

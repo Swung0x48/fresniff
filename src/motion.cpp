@@ -188,7 +188,17 @@ MotionGrid motion_grid(int width, int height)
 
 cv::Size motion_picture_size(int width, int height)
 {
-    const int scale = motion_scale(width, height);
+    return video_picture_size(width, height, false);
+}
+
+int video_picture_scale(int width, int height, bool native)
+{
+    return native ? 1 : motion_scale(width, height);
+}
+
+cv::Size video_picture_size(int width, int height, bool native)
+{
+    const int scale = video_picture_scale(width, height, native);
     return cv::Size(width / scale / 2 * 2, height / scale / 2 * 2);
 }
 

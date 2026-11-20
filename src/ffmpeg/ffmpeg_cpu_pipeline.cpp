@@ -163,7 +163,7 @@ public:
                 if (_motion_detail)
                 {
                     result.detail = std::make_shared<MotionDetail>();
-                    ffmpeg::motion_picture(ffmpeg::yuv_planes(current), result.detail->picture, _scratch);
+                    ffmpeg::motion_picture(ffmpeg::yuv_planes(current), result.detail->picture, _scratch, _native_pictures);
                 }
                 result.motion = _motion[i].estimate(luma, _motion_detail ? &result.detail->points : nullptr);
                 if (_resolution)
@@ -192,7 +192,11 @@ public:
     }
 
     void enable_motion() override { _motion.resize(_videos.size()); }
-    void enable_motion_detail() override { _motion_detail = true; }
+    void enable_motion_detail(bool native) override
+    {
+        _motion_detail = true;
+        _native_pictures = native;
+    }
     void enable_resolution() override
     {
         if (_motion.empty()) throw std::logic_error("the resolution analysis needs the motion analysis");
@@ -246,6 +250,8 @@ private:
     std::vector<RowCounts> _results;
     std::vector<MotionEstimator> _motion;
     bool _motion_detail = false;
+    //! --motion-video-native: the pictures at the resolution of the frames
+    bool _native_pictures = false;
     bool _resolution = false;
     cv::Mat _scratch;
     bool _first_frames_ready = false;

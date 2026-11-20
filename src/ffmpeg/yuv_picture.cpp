@@ -21,11 +21,11 @@ YuvPlanes yuv_planes(const AVFrame * frame)
     return planes;
 }
 
-void motion_picture(const YuvPlanes & planes, cv::Mat & picture, cv::Mat & scratch)
+void motion_picture(const YuvPlanes & planes, cv::Mat & picture, cv::Mat & scratch, bool native)
 {
     const YuvLayout & layout = planes.layout;
-    const int scale = motion_scale(planes.width, planes.height);
-    const cv::Size size = motion_picture_size(planes.width, planes.height);
+    const int scale = video_picture_scale(planes.width, planes.height, native);
+    const cv::Size size = video_picture_size(planes.width, planes.height, native);
     const cv::Size chroma_size(size.width / 2, size.height / 2);
     picture.create(size.height * 3 / 2, size.width, CV_8UC1);
     cv::Mat y_plane = picture(cv::Rect(0, 0, size.width, size.height));
