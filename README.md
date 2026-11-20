@@ -1,3 +1,5 @@
+<img src="docs/icon.svg" alt="trdrop++ icon" width="96" align="left">
+
 # trdrop++
 
 Analyzes captured game video:
