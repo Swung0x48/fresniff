@@ -260,6 +260,7 @@ install(FILES
 # agent skills (skills/<name>/SKILL.md); they expect the scripts in ../../scripts relative to themselves
 install(DIRECTORY skills/ DESTINATION "${TRDROP_INSTALL_SKILLDIR}")
 install(FILES README.md DESTINATION "${TRDROP_INSTALL_DOCDIR}")
+install(FILES docs/motion-video.jpg docs/resolution-video.jpg DESTINATION "${TRDROP_INSTALL_DOCDIR}/docs")
 install(FILES LICENSE DESTINATION "${TRDROP_INSTALL_LICENSEDIR}" RENAME trdrop++-LICENSE.txt)
 
 # ---- package: the installed folder as an archive
