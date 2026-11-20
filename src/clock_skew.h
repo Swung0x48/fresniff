@@ -14,7 +14,8 @@ namespace trdrop {
 //!
 //! Such an episode is recognized by
 //!  - a run of new frames whose recorded lengths differ from the local cadence by exactly one interval, the
-//!    differences alternating in sign, beginning and ending with the same sign (net one interval),
+//!    differences alternating in sign, beginning and ending with the same sign (net one interval) - frames of one
+//!    sign at its ends (hitches of a game that drops frames) are left out of it,
 //!  - with motion: the animation steps of those frames are closer to the cadence than to the recorded lengths,
 //!  - and the episodes lying on one lattice: one period (900 - 1101 recorded frames, the 1000 / 1001 ratio and
 //!    the tolerance of the clocks), one phase, one sign for the whole video. The lattice is fitted to episodes

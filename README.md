@@ -489,7 +489,10 @@ the rate should look the same but weren't tried. An episode is filtered if
 
 * the recorded lengths of its new frames differ from the cadence around them (the mean length within a second
   before and after, if that is a whole number of intervals) by exactly one interval, alternately longer and
-  shorter, beginning and ending with the same sign: net one interval too many (or too few);
+  shorter, beginning and ending with the same sign: net one interval too many (or too few). A game that drops
+  frames now and then may have a frame really shown an interval longer right before or after the alternation
+  (`3 3 3 1 3 1 ... 1 3 3`): such frames of one sign at the ends are left out of the episode and stay. An episode
+  with more than one alternating part (what a variable refresh rate looks like) is none;
 * with `--motion`: the animation steps of those frames are closer to the cadence than to the recorded lengths
   (the game was even, the capture wasn't);
 * and it lies on one lattice for the whole video: one period between 900 and 1101 frames, one phase, one sign.
@@ -520,7 +523,9 @@ about twice as long as the analysis alone (4:45 minutes of 4K with Vulkan Video 
 video 65 s).
 
 Measured on four 4K recordings of a PS5 Pro (Live Gamer BOLT, OBS at 60 fps; a game at 30 fps), 2.5 - 5.5
-minutes each: 17, 11, 10 and 7 episodes filtered, every 979 - 996 frames (59.94 Hz). In the 285 s one
+minutes each: 17, 12, 11 and 7 episodes filtered, every 981 - 995 frames (59.94 Hz). A PS5 recording of the same
+game, which drops to 20 fps for single frames now and then: 7 episodes - none before the frames at the ends were
+left out - and the animation error p95 4.4 instead of 15.3 ms. In the 285 s one
 (`--motion`): `vN_fps` 29.97 instead of 29 / 31 in every episode, the perceived smoothness 29.87 - 29.97 instead
 of 29.4 - 30.5, rows with a frametime of 16.7 ms from 841 to 53 and of 50 ms from 482 to 3; further than a second
 from an episode every row changed by the ratio of the rates only (0.999). No episode was filtered in the ball fixtures, the truth clip, a 4K 120 fps recording

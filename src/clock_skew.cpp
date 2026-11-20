@@ -140,6 +140,38 @@ ClockSkewResult detect_clock_skew(const std::vector<double> & diff, const std::v
     }
     for (Episode & episode : episodes)
     {
+        // a frame the game really showed an interval longer (or shorter) right next to the alternation - a hitch
+        // in a game that drops frames - would spoil it: keep the longest alternating part, of an odd length (net
+        // one interval), the frames left out stay as they were recorded
+        std::vector<std::pair<size_t, int>> & run = episode.differences;
+        size_t best_from = 0, best_length = 0, from = 0;
+        for (size_t j = 1; j <= run.size(); ++j)
+        {
+            if (j < run.size() && run[j].second != run[j - 1].second) continue;
+            if (j - from > best_length)
+            {
+                best_from = from;
+                best_length = j - from;
+            }
+            from = j;
+        }
+        if (best_length < run.size())
+        {
+            if (best_length % 2 == 0) --best_length;
+            // only frames of one sign before it and of one sign after it: hitches at its ends. More than one
+            // alternating part (what a variable refresh rate looks like) stays as it is, and is no episode
+            bool ends_only = true;
+            for (size_t j = 1; j < run.size(); ++j)
+            {
+                const bool outside = j <= best_from || j > best_from + best_length;
+                if (outside && run[j].second != run[j - 1].second && j != best_from + best_length) ends_only = false;
+            }
+            if (ends_only)
+            {
+                run = std::vector<std::pair<size_t, int>>(run.begin() + static_cast<std::ptrdiff_t>(best_from),
+                                                         run.begin() + static_cast<std::ptrdiff_t>(best_from + best_length));
+            }
+        }
         bool alternating = true;
         int measured = 0, agreeing = 0;
         for (size_t j = 0; j < episode.differences.size(); ++j)
