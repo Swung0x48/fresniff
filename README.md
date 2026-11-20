@@ -466,7 +466,11 @@ Two lengths that add up to the cadence (a 30 fps frame recorded as 1, 1: a chang
 the clock and stay, and so does whatever else doesn't fit: a hitch, a cut, a real change of the framerate.
 Every frame of a filtered episode counts as shown for its cadence - the alternation and the interval the clocks
 drifted - in `vN_fps`, `vN_frametime_ms`, the animation error and the perceived smoothness, and in the summary
-(`vN_diff` stays what the pixels say). The summary says what was found:
+(`vN_diff` stays what the pixels say). The interval taken out is a refresh of the source the capture recorded
+twice, so the rows then count the source's refreshes, and they are turned into seconds at the source's rate:
+a 30 fps game on a 59.94 Hz output is 29.97 fps and 33.37 ms, in every row of the video, not only near the
+episodes. The effective framerate (frames per recorded second) is the same with and without the option. The
+summary says what was found:
 
 ```
 v1 clock skew: a 59.940 Hz source in the 60.000 fps recording - one interval too many every 994 frames (16.57 s); 17 episodes filtered at 9.2-12.3, 25.6-28.7, ...
@@ -478,9 +482,9 @@ recorded.
 
 Measured on four 4K recordings of a PS5 Pro (Live Gamer BOLT, OBS at 60 fps; a game at 30 fps), 2.5 - 5.5
 minutes each: 17, 11, 10 and 7 episodes filtered, every 979 - 996 frames (59.94 Hz). In the 285 s one
-(`--motion`): `vN_fps` 30 instead of 29 / 31 in every episode, the perceived smoothness 29.9 - 30.0 instead of
-29.4 - 30.5, rows with a frametime of 16.7 ms from 841 to 53 and of 50 ms from 482 to 3, not one row changed further than a
-second from an episode. No episode was filtered in the ball fixtures, the truth clip, a 4K 120 fps recording
+(`--motion`): `vN_fps` 29.97 instead of 29 / 31 in every episode, the perceived smoothness 29.87 - 29.97 instead
+of 29.4 - 30.5, rows with a frametime of 16.7 ms from 841 to 53 and of 50 ms from 482 to 3; further than a second
+from an episode every row changed by the ratio of the rates only (0.999). No episode was filtered in the ball fixtures, the truth clip, a 4K 120 fps recording
 whose capture lost and repeated pictures, and 144 / 240 fps recordings of a game with variable refresh rate.
 
 ### Recording at twice the framerate

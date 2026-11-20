@@ -502,8 +502,6 @@ struct VideoStats {
     long long frametime_samples = 0;
     double frametime_sum = 0.0;
     double frametime_max = 0.0;
-    //! --ignore-clock-skew: intervals added to the compared frames by the filtered episodes (< 0: removed)
-    long long interval_correction = 0;
 };
 
 //! --ignore-clock-skew: what a row holds of a video, kept until the whole video is known
@@ -518,7 +516,10 @@ struct StoredValues {
 
 //! --ignore-clock-skew for video `video` of the rows: finds the episodes (clock_skew.h) and, if there are, recomputes
 //! the framerate, the frametime, the animation error and the perceived smoothness of the rows as if every frame of
-//! an episode had been recorded for its cadence, and the summaries. window: frames of the rolling framerate
+//! an episode had been recorded for its cadence, and the summaries. window: frames of the rolling framerate.
+//! The re-timed rows count the source's refreshes - the filtered intervals are the ones the capture recorded twice -,
+//! so they are turned into seconds at the source's rate: every value of the video changes by the ratio of the rates
+//! (0.1% for 59.94 / 60), the effective framerate (frames per recorded second) stays.
 ClockSkewResult filter_clock_skew(std::vector<std::vector<StoredValues>> & rows, size_t video, double fps, size_t window
                                 , VideoStats & stats, MotionAnalyzer::Summary * motion)
 {
@@ -536,9 +537,12 @@ ClockSkewResult filter_clock_skew(std::vector<std::vector<StoredValues>> & rows,
     if (!result.found) return result;
     const std::vector<long long> times = clock_skew_times(diff, result.correction);
     const long long length = static_cast<long long>(window);
+    const double source_fps = result.source_fps;
+    // per second at the source's rate / per second at the recorded rate
+    const double to_source = source_fps / fps;
 
-    // rolling framerate and frametime: the frames of the last second of the re-timed time. Where that second holds
-    // the same rows as before and no correction, the values stay as they are
+    // rolling framerate and frametime: the frames of the last `window` refreshes of the re-timed time. Where those
+    // hold the same rows as before and no correction, only the rate changes
     std::vector<int> corrected(count + 1, 0); // prefix sums of the rows with a correction
     for (size_t t = 0; t < count; ++t) corrected[t + 1] = corrected[t] + (result.correction[t] != 0 ? 1 : 0);
     size_t first = 0;
@@ -550,10 +554,15 @@ ClockSkewResult filter_clock_skew(std::vector<std::vector<StoredValues>> & rows,
         if (!v.compared) continue;
         while (times[lo] <= times[t] - length) ++lo;
         const size_t original_lo = t + 1 >= first + window ? t + 1 - window : first;
-        if (lo == original_lo && corrected[t + 1] == corrected[lo]) continue;
+        if (lo == original_lo && corrected[t + 1] == corrected[lo])
+        {
+            v.fps *= to_source;
+            v.frametime /= to_source;
+            continue;
+        }
         double sum = 0.0;
         for (size_t j = lo; j <= t; ++j) sum += rows[j][video].diff;
-        v.fps = sum;
+        v.fps = sum * to_source;
         v.frametime = 0.0;
         if (sum < 2.0) continue;
         long long last_new = -1, previous_new = -1;
@@ -566,7 +575,7 @@ ClockSkewResult filter_clock_skew(std::vector<std::vector<StoredValues>> & rows,
         if (previous_new >= 0)
         {
             v.frametime = static_cast<double>(times[static_cast<size_t>(last_new)] - times[static_cast<size_t>(previous_new)])
-                        / static_cast<double>(window) * 1000.0;
+                        / static_cast<double>(window) * 1000.0 / to_source;
         }
     }
 
@@ -583,7 +592,6 @@ ClockSkewResult filter_clock_skew(std::vector<std::vector<StoredValues>> & rows,
     {
         const StoredValues & v = rows[t][video];
         if (!v.compared) continue;
-        stats.interval_correction += result.correction[t];
         if (++compared < static_cast<long long>(window)) continue;
         stats.window_samples += 1;
         stats.fps_sum += v.fps;
@@ -600,7 +608,7 @@ ClockSkewResult filter_clock_skew(std::vector<std::vector<StoredValues>> & rows,
 
     // motion: a new frame of an episode counts as shown for its cadence in the animation error and the perceived
     // smoothness - if the motion's new frames are the frames the episode was found in
-    RollingSmoothness rolling(fps, static_cast<size_t>(std::max(1.0, std::ceil(fps - 1e-9))));
+    RollingSmoothness rolling(source_fps, static_cast<size_t>(std::max(1.0, std::ceil(fps - 1e-9))));
     std::vector<float> errors;
     long long shown_delta = 0;
     long long previous_new = -1;
@@ -616,8 +624,12 @@ ClockSkewResult filter_clock_skew(std::vector<std::vector<StoredValues>> & rows,
             {
                 const int shown = sample.chain_shown + correction;
                 displayed = static_cast<double>(shown);
-                sample.error_ms = (sample.chain_step - displayed) * 1000.0 / fps;
+                sample.error_ms = (sample.chain_step - displayed) * 1000.0 / source_fps;
                 shown_delta += correction;
+            }
+            else
+            {
+                sample.error_ms /= to_source;
             }
             errors.push_back(static_cast<float>(sample.error_ms));
             const int pictures = 1 + sample.lost;
@@ -630,8 +642,8 @@ ClockSkewResult filter_clock_skew(std::vector<std::vector<StoredValues>> & rows,
     m.shown_total += shown_delta;
     if (m.shown_total > 0)
     {
-        m.motion_fps = fps * static_cast<double>(m.animation_frames) / static_cast<double>(m.shown_total);
-        if (m.step_square_sum > 0.0) m.perceived_fps = fps * m.step_sum * m.step_sum / (static_cast<double>(m.shown_total) * m.step_square_sum);
+        m.motion_fps = source_fps * static_cast<double>(m.animation_frames) / static_cast<double>(m.shown_total);
+        if (m.step_square_sum > 0.0) m.perceived_fps = source_fps * m.step_sum * m.step_sum / (static_cast<double>(m.shown_total) * m.step_square_sum);
     }
     if (!rolling.values().empty())
     {
@@ -640,7 +652,8 @@ ClockSkewResult filter_clock_skew(std::vector<std::vector<StoredValues>> & rows,
         m.perceived_fps_median = sorted[sorted.size() / 2];
         m.perceived_fps_low = sorted[sorted.size() / 10];
     }
-    MotionAnalyzer::summarize_errors(errors, fps, m);
+    m.median_step_spread_ms /= to_source;
+    MotionAnalyzer::summarize_errors(errors, source_fps, m);
     return result;
 }
 
@@ -1418,8 +1431,7 @@ int run(const Options & options)
         for (size_t i = 0; i < video_count; ++i)
         {
             const VideoStats & s = stats[i];
-            const long long intervals = s.compared_frames + s.interval_correction;
-            const double effective_fps = intervals > 0 ? s.diff_sum / static_cast<double>(intervals) * recorded_framerates[i] : 0.0;
+            const double effective_fps = s.compared_frames > 0 ? s.diff_sum / static_cast<double>(s.compared_frames) * recorded_framerates[i] : 0.0;
             std::fprintf(stderr, "v%zu: effective %.2f fps | new %lld, duplicate %lld, torn %lld (%lld tears)"
                        , i + 1, effective_fps, s.new_frames, s.duplicate_frames, s.torn_frames, s.tear_count);
             if (s.window_samples > 0)
