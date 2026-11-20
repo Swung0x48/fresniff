@@ -148,7 +148,8 @@ number came from when several were analyzed.
 | Small real changes are missed in a mostly static picture (a static camera, a menu) | the automatic tolerance allows for them only where the recording has duplicates that change little (recorded above the framerate, a good bitrate). Otherwise lower it: `--tolerance-pct 0.1`, or `--lossless` for a recording encoded lossless (HEVC lossless): a duplicate is then an identical frame. On three such recordings of a 60 fps game the automatic tolerance counted 200 - 500 new frames of a still camera as duplicates (44 - 53 instead of 56 - 57 fps). A desktop overlay in the picture (the taskbar) that is redrawn at another rate reads as a tear with `--lossless` |
 | The container's framerate is wrong | `--source-fps <fps>` |
 | The capture was not in step with the game's output (variable refresh rate output, or recorded with a capture program like OBS) and the summary shows a `note:` about animation errors of one whole interval | `--async-capture` instead of `--motion`, see below |
-| A console (59.94 Hz) recorded at 60 fps by a capture program, and the framerate swings 29 / 31 (or the perceived smoothness 29.5 / 30.5) for a few seconds every ~16.7 s | `--ignore-clock-skew`, see below |
+| A console (59.94 Hz) recorded at 60 fps by a capture program, and the framerate swings 29 / 31 (or the perceived smoothness 29.5 / 30.5) for a few seconds every ~16.7 s | `--motion --ignore-clock-skew`, see "A 59.94 Hz source recorded at 60 fps" below |
+| A lossy recording shows 1 second at one frame per second more (31 instead of 30), at a fixed spacing (every 4.2 s with OBS) | a duplicate on a keyframe counted as new. `--keyframe-tolerance` (default 0.5) handles most of them; if some remain in a heavily compressed recording, try 0.75. `0` turns the rule off |
 | Many tears reported on a picture with black bars or a static HUD | expected: a boundary between unchanged and changed rows counts as a tear. `--dismiss-tear-pct` raises the size a tear must have |
 | No GPU, a GPU error, or results must not depend on the GPU | `--no-vk` (CPU only), or `--decode ffmpeg` |
 | Several GPUs | `--list-vkdevices`, then `--vkdevice <n>` |
@@ -176,16 +177,55 @@ the same recording, and with the option that is no longer reported; animation er
 disappear too. When you use it, say so in the report, give the numbers with and without it, and mention how
 many pictures were counted in: a capture that loses pictures should be fixed rather than corrected.
 
-`--ignore-clock-skew` handles one case of this only: a 59.94 Hz source recorded at 60 fps. The two clocks
-drift by one interval every ~1001 recorded frames (16.7 s at 60 fps); around each such point the pictures of
-the game are recorded alternately a tick early and late (a 30 fps game 3, 1, 3, 1 instead of 2, 2) and the
-episode holds one interval too many. The option filters episodes with exactly that pattern which lie on one
-lattice of that period for the whole video (with `--motion`, only if the motion says the game was even), and
-nothing else: hitches, cuts, frames split by a HUD change (1, 1) stay. It works with or without `--motion`,
-also together with `--async-capture`, and needs a game at half the recording's framerate or less. The summary
-says what it found (`v1 clock skew: a 59.940 Hz source ... N episodes filtered at ...`) or why nothing was
-filtered; report that line. The CSV is written only at the end, and the motion video shows the values as
-recorded.
+One case of this has an option of its own, see the next section.
+
+## A 59.94 Hz source recorded at 60 fps
+
+Consoles (PS5, Xbox) and many PCs output 59.94 Hz (60000 / 1001), capture programs (OBS with a capture card
+such as the Live Gamer BOLT) usually record at 60.000 fps. The two clocks drift by one interval every ~1001
+recorded frames (16.7 s): the capture records one refresh of the source twice, and for a few seconds around
+that point small timing differences decide whether a picture is recorded a tick early or late. A steady 30 fps
+game then reads 29 / 31 fps (perceived 29.5 / 30.5) for 2 - 5 seconds, every 16.7 s, whatever the scene.
+
+Use:
+
+```
+trdrop-pp <video> --motion --ignore-clock-skew -o <name>.csv 2> <name>.log
+python <scripts>/smoothness.py <name>.csv --fps 60 -o <name>_smoothness.png
+```
+
+- `--ignore-clock-skew` finds those episodes (alternately one interval longer and shorter than the cadence,
+  net one interval, on one lattice of ~1001 frames for the whole video, and with `--motion` only where the
+  motion says the game was even) and counts every frame of them as shown for its cadence. Nothing else is
+  changed: hitches, cuts, a single frame recorded late (3, 1), a frame split by a HUD change (1, 1) stay.
+- It then counts the source's refreshes and converts them at the source's rate: a steady 30 fps game reads
+  29.97 fps and 33.37 ms in every row, not 30.00 - that is the true rate of a 59.94 Hz output. The effective
+  framerate on the first summary line (frames per recorded second) is the same with and without the option.
+- The summary says what it found - `v1 clock skew: a 59.940 Hz source in the 60.000 fps recording - one
+  interval too many every 994 frames (16.57 s); 17 episodes filtered at ...` - or `nothing filtered (...)`
+  and why. Report that line, and that the option was used.
+- Keep `--fps 60` for the plots: it is the recorded rate, it only scales the time axis.
+- OBS also puts a keyframe every 250 frames, where a repeated picture used to count as new (1 s at 31 fps
+  every 4.2 s). The default `--keyframe-tolerance 0.5` handles that; nothing to add.
+- Don't add `--async-capture` for this: the option already undoes the beat, and `--async-capture` assumes
+  more about the capture. Use it only if its `note:` about animation errors of one interval stays outside
+  the filtered episodes (a variable refresh rate output, a capture that loses pictures), and then say so.
+- What remains in the perceived smoothness after filtering is mostly content: the motion of a frame is
+  compared with the motion around it, so a camera that stops or turns abruptly reads as a short dip although
+  the framerate stays at 29.97. Check the animation step around such a dip before calling it a stutter.
+- It needs a game at half the recording's framerate or less. A 60 fps game in a 60 fps recording can't show
+  the alternation; nothing is filtered (`nothing filtered (no beat: ...)`), and the beat appears as one
+  repeated picture (and maybe one lost) every ~16.7 s. If repeated pictures come back at that spacing, report
+  them as the capture's clock, not as hitches of the game. Not tried on a recording.
+- Tried on four 4K recordings of a PS5 Pro (OBS, Live Gamer BOLT, 30 fps game): 17, 11, 10 and 7 episodes,
+  periods of 979 - 996 frames. 60 Hz recorded at 59.94 (one interval too few) or a recording at a multiple of
+  the rate should look the same but were not tried.
+
+When the user can record again, better than filtering: set the capture program to the source's rate (OBS:
+Settings - Video - Common FPS values 59.94), or record at twice the rate or more (120 fps for a 60 Hz output,
+see the README section "Recording at twice the framerate"). Neither was tried with a 59.94 Hz source.
+
+The CSV is written only at the end of the run, and `--motion-video` shows the values before filtering.
 
 ## What it can not do
 
