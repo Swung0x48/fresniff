@@ -225,7 +225,9 @@ When the user can record again, better than filtering: set the capture program t
 Settings - Video - Common FPS values 59.94), or record at twice the rate or more (120 fps for a 60 Hz output,
 see the README section "Recording at twice the framerate"). Neither was tried with a 59.94 Hz source.
 
-The CSV is written only at the end of the run, and `--motion-video` shows the values before filtering.
+The CSV is written only at the end of the run. `--motion-video` together with `--ignore-clock-skew` reads the
+video twice - first the analysis (CSV and summary), then a pass that draws the motion video with the filtered
+values, so its numbers match the CSV. It takes about twice as long; the progress shows both passes.
 
 ## What it can not do
 

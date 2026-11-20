@@ -1017,8 +1017,13 @@ std::unique_ptr<FramePipeline> make_pipeline(const Options & options)
     return make_opencv_decode_pipeline(options);
 }
 
-int run(const Options & options)
+//! export_rows: receives the values of every row once the video is analyzed (--ignore-clock-skew: filtered).
+//! render_rows: the second pass of --ignore-clock-skew with --motion-video - nothing is written but the motion
+//! videos, and they show these values instead of the ones measured again
+int run(const Options & options, std::vector<std::vector<StoredValues>> * export_rows = nullptr
+      , const std::vector<std::vector<StoredValues>> * render_rows = nullptr)
 {
+    const bool render_only = render_rows != nullptr;
     std::unique_ptr<FramePipeline> pipeline_owner = make_pipeline(options);
     FramePipeline & pipeline = *pipeline_owner;
     if (options.motion) pipeline.enable_motion();
@@ -1066,7 +1071,12 @@ int run(const Options & options)
         if (v.lossless && sources.lossy_codec(i)) automatic[i] += ", taken as lossless (--lossless)";
     }
 
-    if (!options.quiet)
+    if (!options.quiet && render_only)
+    {
+        std::fprintf(stderr, "drawing the motion video%s with the filtered values (--ignore-clock-skew: a second pass over the video)\n"
+                   , options.motion_videos.size() > 1 ? "s" : "");
+    }
+    if (!options.quiet && !render_only)
     {
         for (size_t i = 0; i < video_count; ++i)
         {
@@ -1082,7 +1092,7 @@ int run(const Options & options)
         }
     }
 
-    if (!options.quiet) std::fprintf(stderr, "backend: %s\n", pipeline.description().c_str());
+    if (!options.quiet && !render_only) std::fprintf(stderr, "backend: %s\n", pipeline.description().c_str());
 
     // --motion-video, --resolution-video: a writer per video that has a file
     std::vector<std::unique_ptr<MotionVideo>> motion_videos(video_count);
@@ -1131,8 +1141,9 @@ int run(const Options & options)
 
     // outputs
     std::ofstream output_file;
-    std::ostream * output = &std::cout;
-    if (options.output_path != "-")
+    std::ostream discard(nullptr); // the render pass writes no CSV
+    std::ostream * output = render_only ? &discard : &std::cout;
+    if (!render_only && options.output_path != "-")
     {
         output_file.open(options.output_path, std::ios::out | std::ios::trunc);
         if (!output_file) throw std::runtime_error("could not open '" + options.output_path + "' for writing");
@@ -1240,8 +1251,19 @@ int run(const Options & options)
                 }
                 if (motion_videos[i] && row.details[i])
                 {
-                    row.values[i].sample = sample;
-                    motion_videos[i]->write(row.values[i], *row.details[i]);
+                    MotionVideoFrame & values = row.values[i];
+                    values.sample = sample;
+                    if (render_rows && static_cast<size_t>(row.frame) < render_rows->size() && i < (*render_rows)[static_cast<size_t>(row.frame)].size())
+                    {
+                        // the values of the first pass, as the CSV has them; the arrows are the ones measured now
+                        const StoredValues & v = (*render_rows)[static_cast<size_t>(row.frame)][i];
+                        values.compared = v.compared;
+                        values.duplicate = v.compared && v.diff == 0.0;
+                        values.torn = v.compared && v.diff > 0.0 && v.diff < 1.0;
+                        values.framerate = v.fps;
+                        values.sample = v.sample;
+                    }
+                    motion_videos[i]->write(values, *row.details[i]);
                 }
                 if (options.ignore_clock_skew) row.stored[i].sample = sample;
             }
@@ -1401,6 +1423,7 @@ int run(const Options & options)
             line += '\n';
             *output << line;
         }
+        if (export_rows) *export_rows = std::move(stored_rows);
     }
     for (const std::unique_ptr<MotionVideo> & video : motion_videos)
     {
@@ -1413,7 +1436,7 @@ int run(const Options & options)
     progress.update(sources, true);
     progress.finish();
     output->flush();
-    if (!*output) throw std::runtime_error("failed writing the output");
+    if (!render_only && !*output) throw std::runtime_error("failed writing the output");
     for (size_t i = 0; i < options.resolution_data.size() && i < resolution_analyzers.size(); ++i)
     {
         const std::string & path = options.resolution_data[i];
@@ -1522,6 +1545,28 @@ int run(const Options & options)
     return 0;
 }
 
+//! --ignore-clock-skew with --motion-video: the filtered values are only known once the whole video is analyzed,
+//! so the video is analyzed first (CSV, summary, everything but the motion videos) and read a second time to
+//! draw the motion videos with those values. Otherwise one pass
+int run_passes(const Options & options)
+{
+    if (!options.ignore_clock_skew || options.motion_videos.empty()) return run(options);
+    Options analysis = options;
+    analysis.motion_videos.clear();
+    std::vector<std::vector<StoredValues>> rows;
+    const int result = run(analysis, &rows);
+    if (result != 0) return result;
+
+    Options render = options;
+    render.ignore_clock_skew = false;
+    render.print_summary = false;
+    render.tears_path.clear();
+    render.resolution = false;
+    render.resolution_videos.clear();
+    render.resolution_data.clear();
+    return run(render, nullptr, &rows);
+}
+
 } // namespace
 } // namespace trdrop
 
@@ -1543,7 +1588,7 @@ int main(int argc, char ** argv)
 #ifdef TRDROP_LIBRARY
         options.progress = progress;
 #endif
-        return trdrop::run(options);
+        return trdrop::run_passes(options);
     }
     catch (const std::invalid_argument & e)
     {

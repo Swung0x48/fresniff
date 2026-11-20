@@ -507,8 +507,11 @@ v1 clock skew: a 59.940 Hz source in the 60.000 fps recording - one interval too
 ```
 
 or why nothing was filtered (`nothing filtered (no beat: ...)`). Nothing found means the same CSV and summary as
-without the option. The CSV is written once the whole video is analyzed; the motion video shows the values as
-recorded.
+without the option. The CSV is written once the whole video is analyzed. With `--motion-video` the video is read
+twice: the first pass analyzes it (CSV, summary, `--resolution-video`), the second one draws the motion video with
+the filtered values - the numbers in it are the ones of the CSV, also where nothing was filtered. That takes
+about twice as long as the analysis alone (4:45 minutes of 4K with Vulkan Video decoding: 33 s, with the motion
+video 65 s).
 
 Measured on four 4K recordings of a PS5 Pro (Live Gamer BOLT, OBS at 60 fps; a game at 30 fps), 2.5 - 5.5
 minutes each: 17, 11, 10 and 7 episodes filtered, every 979 - 996 frames (59.94 Hz). In the 285 s one
