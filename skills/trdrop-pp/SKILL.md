@@ -226,7 +226,7 @@ python <scripts>/smoothness.py <name>.csv --fps 60 -o <name>_smoothness.png
 
 When the user can record again, better than filtering: set the capture program to the source's rate (OBS:
 Settings - Video - Common FPS values 59.94), or record at twice the rate or more (120 fps for a 60 Hz output,
-see "Recording at twice the framerate" in docs/details.md). Neither was tried with a 59.94 Hz source.
+see "Recording at twice the framerate" in the README). Neither was tried with a 59.94 Hz source.
 
 The CSV is written only at the end of the run. `--motion-video` together with `--ignore-clock-skew` reads the
 video twice - first the analysis (CSV and summary), then a pass that draws the motion video with the filtered

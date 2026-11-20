@@ -12,9 +12,6 @@ The per frame data is written as CSV, a summary goes to stderr, and [Python scri
 Optionally the analysis runs on the GPU (Vulkan), including the decoding of HEVC / H.264 recordings.
 The program is called `trdrop-pp`: `pp` is the `++`, which file names and URLs don't handle well.
 
-[docs/details.md](docs/details.md) describes every rule in full, with the measurements and test recordings
-behind it.
-
 ## Usage
 
 ```
