@@ -8,9 +8,11 @@ Analyzes captured game video:
 * the [render resolution](#render-resolution---resolution) behind upscaling, including temporal upscalers
   (DLSS, FSR 2 and later, XeSS, TSR, PSSR) (`--resolution`).
 
-| [Motion video](#motion-video---motion-video) | [Resolution video](#render-resolution---resolution) |
-| --- | --- |
-| ![Motion video: tracked points as arrows, the values of the frame and the framerate chart](docs/motion-video.jpg) | ![Resolution video: the edge columns of a pan, the charts of the pixel grid, the pan and the stair steps, and the candidates](docs/resolution-video.jpg) |
+![Motion video: tracked points as arrows, the values of the frame and the framerate chart](docs/motion-video.jpg)
+*[Motion video](#motion-video---motion-video): the tracked motion, the values of the frame and the framerate of the last 10 seconds*
+
+![Resolution video: the edge columns of a pan, the charts of the pixel grid, the pan and the stair steps, and the candidates](docs/resolution-video.jpg)
+*[Resolution video](#render-resolution---resolution): the traces of the render resolution and the candidates found so far*
 
 The per frame data is written as CSV, a summary goes to stderr, and [Python scripts](#plotting) plot it.
 Optionally the analysis runs on the GPU (Vulkan), including the decoding of HEVC / H.264 recordings.
