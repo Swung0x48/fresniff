@@ -125,6 +125,8 @@ struct Options {
     double arrow_scale = 1.0;
     //! --motion-arrows: draw optical-flow arrows and rejected matches on the motion video (off by default)
     bool motion_arrows = false;
+    //! --osd: motion video overlay style: glass (frosted-glass bottom card, default) or detailed (legacy top-left telemetry, chart and arrows)
+    std::string osd = "glass";
     //! --motion-video-native: the motion video at the resolution of the input, not of the motion
     bool motion_video_native = false;
     //! called while the videos are analyzed (frames read, progress 0 - 1 or < 0 if unknown), the analysis
