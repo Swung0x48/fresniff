@@ -651,7 +651,8 @@ void MotionVideo::_init_glass(double fps)
     card.shadow_pad = 36.0f * s;
 
     _font_number = OsdFontFace(OsdFontWeight::Bold, 58.5f * s);
-    _font_label = OsdFontFace(OsdFontWeight::Medium, 19.5f * s);
+    _font_label = OsdFontFace(OsdFontWeight::NotoSansScMedium, 18.0f * s);
+    const OsdFontFace font_note(OsdFontWeight::NotoSansScMedium, 13.0f * s);
     _font_tick = OsdFontFace(OsdFontWeight::Medium, 15.3f * s);
 
     // Card-local typography geometry
@@ -665,12 +666,16 @@ void MotionVideo::_init_glass(double fps)
     const float swatch_h = 4.0f * s;
     const float swatch_r = 2.0f * s;
     const float swatch_gap = 8.0f * s;
-    const float label_cap = _font_label.valid() ? _font_label.cap_height() : 14.0f * s;
-    const float swatch_y = label_baseline_y - 0.5f * label_cap - 0.5f * swatch_h;
+    const float label_mid = _font_label.valid() ? _font_label.visual_center_above_baseline() : 7.0f * s;
+    const float swatch_y = label_baseline_y - label_mid - 0.5f * swatch_h;
+
+    const std::string label_fps = "\xe5\xb8\xa7\xe7\x8e\x87"; // 帧率
+    const std::string label_perc = "\xe4\xbd\x93\xe6\x84\x9f\xe5\xb8\xa7\xe7\x8e\x87"; // 体感帧率
+    const std::string label_note = "\xe5\x9f\xba\xe4\xba\x8e Animation Error"; // 基于 Animation Error
 
     _block1_x = local_left;
     const float block1_label_x = _block1_x + swatch_w + swatch_gap;
-    const float block1_label_w = _font_label.valid() ? _font_label.measure_text("Framerate") : 92.0f * s;
+    const float block1_label_w = _font_label.valid() ? _font_label.measure_text(label_fps) : 36.0f * s;
     if (static_cast<float>(W_card) >= 560.0f * s)
     {
         _block2_x = local_left + 228.0f * s;
@@ -686,15 +691,16 @@ void MotionVideo::_init_glass(double fps)
 
     const OsdColor primary_swatch_col{ 245, 248, 252, 0.96f };
     const OsdColor secondary_swatch_col{ 82, 182, 255, 0.96f };
-    const OsdColor label_col{ 235, 240, 248, 0.74f };
+    const OsdColor label_col{ 235, 240, 248, 0.76f };
+    const OsdColor note_col{ 235, 240, 248, 0.46f };
     const OsdColor range_col{ 235, 240, 248, 0.40f };
     const OsdColor tick_col{ 235, 240, 248, 0.45f };
 
     draw_rounded_rect_rgba(_static_overlay, _block1_x, swatch_y, swatch_w, swatch_h, swatch_r, primary_swatch_col);
-    _font_label.draw_text(_static_overlay, block1_label_x, label_baseline_y, "Framerate", label_col);
+    _font_label.draw_text(_static_overlay, block1_label_x, label_baseline_y, label_fps, label_col);
 
     draw_rounded_rect_rgba(_static_overlay, _block2_x, swatch_y, swatch_w, swatch_h, swatch_r, secondary_swatch_col);
-    const float block2_label_end = _font_label.draw_text(_static_overlay, _block2_x + swatch_w + swatch_gap, label_baseline_y, "Perceived", label_col);
+    const float block2_label_end = _font_label.draw_text(_static_overlay, _block2_x + swatch_w + swatch_gap, label_baseline_y, label_perc, label_col);
 
     // Chart geometry (frame coordinates)
     const float plot_x0 = static_cast<float>(x0) + local_left;
@@ -703,8 +709,10 @@ void MotionVideo::_init_glass(double fps)
     const float plot_y1 = static_cast<float>(y0) + 240.0f * s;
     const float plot_w = plot_x1 - plot_x0;
     const float plot_h = plot_y1 - plot_y0;
+    const bool show_chart = (plot_w >= 140.0f * s && plot_h >= 20.0f * s && plot_w >= 16.0f);
 
-    if (plot_w >= 140.0f * s && plot_h >= 20.0f * s && plot_w >= 16.0f)
+    float range_limit = local_right;
+    if (show_chart)
     {
         _chart = true;
         _chart_top = chart_top(fps);
@@ -751,6 +759,7 @@ void MotionVideo::_init_glass(double fps)
         if (block2_label_end + 12.0f * s < local_right - range_w)
         {
             _font_tick.draw_text_right(_static_overlay, local_right, label_baseline_y, range_tag, range_col);
+            range_limit = local_right - range_w - 16.0f * s;
         }
 
         const float tick_cap = _font_tick.valid() ? _font_tick.cap_height() : 11.0f * s;
@@ -760,6 +769,16 @@ void MotionVideo::_init_glass(double fps)
             const float gy_local = card.grid_y[i] - static_cast<float>(y0);
             const float baseline = gy_local + 0.5f * tick_cap;
             _font_tick.draw_text_right(_static_overlay, local_right, baseline, format("%g", tick_vals[i]), tick_col);
+        }
+    }
+
+    if (font_note.valid())
+    {
+        const float note_x = block2_label_end + 10.0f * s;
+        const float note_w = font_note.measure_text(label_note);
+        if (note_x + note_w <= range_limit)
+        {
+            font_note.draw_text(_static_overlay, note_x, label_baseline_y, label_note, note_col);
         }
     }
 

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <unordered_map>
 #include <vector>
 
 #include "osd_font_data.h"
@@ -88,6 +89,59 @@ struct CachedGlyph {
     std::array<SubpixelBitmap, kSubpixelPhases> phases;
 };
 
+uint32_t next_utf8_codepoint(const std::string & text, size_t & pos)
+{
+    const size_t n = text.size();
+    if (pos >= n) return 0;
+    const uint8_t b0 = static_cast<uint8_t>(text[pos]);
+    if (b0 < 0x80u)
+    {
+        ++pos;
+        return b0;
+    }
+    auto cont = [&](size_t idx) -> uint8_t { return static_cast<uint8_t>(text[idx]); };
+    if ((b0 & 0xE0u) == 0xC0u && pos + 1 < n)
+    {
+        const uint8_t b1 = cont(pos + 1);
+        if ((b1 & 0xC0u) == 0x80u)
+        {
+            const uint32_t cp = (static_cast<uint32_t>(b0 & 0x1Fu) << 6) | static_cast<uint32_t>(b1 & 0x3Fu);
+            pos += 2;
+            return cp >= 0x80u ? cp : 0xFFFDu;
+        }
+    }
+    else if ((b0 & 0xF0u) == 0xE0u && pos + 2 < n)
+    {
+        const uint8_t b1 = cont(pos + 1);
+        const uint8_t b2 = cont(pos + 2);
+        if ((b1 & 0xC0u) == 0x80u && (b2 & 0xC0u) == 0x80u)
+        {
+            const uint32_t cp = (static_cast<uint32_t>(b0 & 0x0Fu) << 12)
+                              | (static_cast<uint32_t>(b1 & 0x3Fu) << 6)
+                              | static_cast<uint32_t>(b2 & 0x3Fu);
+            pos += 3;
+            return (cp >= 0x800u && (cp < 0xD800u || cp > 0xDFFFu)) ? cp : 0xFFFDu;
+        }
+    }
+    else if ((b0 & 0xF8u) == 0xF0u && pos + 3 < n)
+    {
+        const uint8_t b1 = cont(pos + 1);
+        const uint8_t b2 = cont(pos + 2);
+        const uint8_t b3 = cont(pos + 3);
+        if ((b1 & 0xC0u) == 0x80u && (b2 & 0xC0u) == 0x80u && (b3 & 0xC0u) == 0x80u)
+        {
+            const uint32_t cp = (static_cast<uint32_t>(b0 & 0x07u) << 18)
+                              | (static_cast<uint32_t>(b1 & 0x3Fu) << 12)
+                              | (static_cast<uint32_t>(b2 & 0x3Fu) << 6)
+                              | static_cast<uint32_t>(b3 & 0x3Fu);
+            pos += 4;
+            return (cp >= 0x10000u && cp <= 0x10FFFFu) ? cp : 0xFFFDu;
+        }
+    }
+    ++pos;
+    return 0xFFFDu;
+}
+
 } // namespace
 
 struct OsdFontFace::Impl {
@@ -95,17 +149,26 @@ struct OsdFontFace::Impl {
     float ascent = 0.0f;
     float descent = 0.0f;
     float cap_height = 0.0f;
+    float visual_center_above_baseline = 0.0f;
     float digit_cell_width = 0.0f;
     float dot_cell_width = 0.0f;
     float dash_cell_width = 0.0f;
     std::array<CachedGlyph, kGlyphCount> glyphs;
+    std::unordered_map<uint32_t, CachedGlyph> extra_glyphs;
     std::vector<float> kern; // kGlyphCount * kGlyphCount, row = prev, col = curr
 
-    void blit_glyph(cv::Mat & rgba_pm, int glyph_idx, float pen_x, int base_y, const OsdColor & color) const
+    const CachedGlyph * find_glyph(uint32_t cp) const
     {
-        if (glyph_idx < 0 || glyph_idx >= kGlyphCount) return;
-        const CachedGlyph & glyph = glyphs[static_cast<size_t>(glyph_idx)];
+        if (cp >= static_cast<uint32_t>(kFirstChar) && cp <= static_cast<uint32_t>(kLastChar))
+        {
+            return &glyphs[static_cast<size_t>(cp - static_cast<uint32_t>(kFirstChar))];
+        }
+        const auto it = extra_glyphs.find(cp);
+        return it != extra_glyphs.end() ? &it->second : nullptr;
+    }
 
+    void blit_glyph(cv::Mat & rgba_pm, const CachedGlyph & glyph, float pen_x, int base_y, const OsdColor & color) const
+    {
         float gx = std::floor(pen_x);
         int phase = static_cast<int>(std::floor((pen_x - gx) * static_cast<float>(kSubpixelPhases) + 0.5f));
         if (phase >= kSubpixelPhases)
@@ -147,8 +210,23 @@ OsdFontFace::OsdFontFace(OsdFontWeight weight, float pixel_height)
 {
     if (!(pixel_height > 0.0f) || !std::isfinite(pixel_height)) return;
 
-    const uint8_t * font_data = (weight == OsdFontWeight::Bold) ? kLeagueSpartanBoldTtf : kLeagueSpartanMediumTtf;
-    const size_t font_size = (weight == OsdFontWeight::Bold) ? kLeagueSpartanBoldTtfSize : kLeagueSpartanMediumTtfSize;
+    const uint8_t * font_data = nullptr;
+    size_t font_size = 0;
+    switch (weight)
+    {
+        case OsdFontWeight::Bold:
+            font_data = kLeagueSpartanBoldTtf;
+            font_size = kLeagueSpartanBoldTtfSize;
+            break;
+        case OsdFontWeight::Medium:
+            font_data = kLeagueSpartanMediumTtf;
+            font_size = kLeagueSpartanMediumTtfSize;
+            break;
+        case OsdFontWeight::NotoSansScMedium:
+            font_data = kNotoSansScMediumTtf;
+            font_size = kNotoSansScMediumTtfSize;
+            break;
+    }
     if (!font_data || font_size == 0) return;
 
     stbtt_fontinfo info {};
@@ -157,7 +235,9 @@ OsdFontFace::OsdFontFace(OsdFontWeight weight, float pixel_height)
     auto impl = std::make_shared<Impl>();
     impl->pixel_height = pixel_height;
 
-    const float scale = stbtt_ScaleForPixelHeight(&info, pixel_height);
+    const float scale = (weight == OsdFontWeight::NotoSansScMedium)
+                      ? stbtt_ScaleForMappingEmToPixels(&info, pixel_height)
+                      : stbtt_ScaleForPixelHeight(&info, pixel_height);
     int ascent_i = 0;
     int descent_i = 0;
     int line_gap_i = 0;
@@ -178,18 +258,25 @@ OsdFontFace::OsdFontFace(OsdFontWeight weight, float pixel_height)
         impl->cap_height = 0.7174f * pixel_height;
     }
 
-    for (int i = 0; i < kGlyphCount; ++i)
+    impl->visual_center_above_baseline = 0.5f * impl->cap_height;
+    if (weight == OsdFontWeight::NotoSansScMedium)
     {
-        const int cp = kFirstChar + i;
-        CachedGlyph & glyph = impl->glyphs[static_cast<size_t>(i)];
-        glyph.glyph_index = stbtt_FindGlyphIndex(&info, cp);
+        int cjk_x0 = 0, cjk_y0 = 0, cjk_x1 = 0, cjk_y1 = 0;
+        if (stbtt_GetCodepointBox(&info, 0x5E27, &cjk_x0, &cjk_y0, &cjk_x1, &cjk_y1) && cjk_y1 > cjk_y0)
+        {
+            impl->visual_center_above_baseline = 0.5f * static_cast<float>(cjk_y0 + cjk_y1) * scale;
+        }
+    }
+
+    auto cache_glyph = [&](uint32_t cp, CachedGlyph & glyph) {
+        glyph.glyph_index = stbtt_FindGlyphIndex(&info, static_cast<int>(cp));
 
         int adv_i = 0;
         int lsb_i = 0;
         stbtt_GetGlyphHMetrics(&info, glyph.glyph_index, &adv_i, &lsb_i);
         glyph.advance = static_cast<float>(adv_i) * scale;
 
-        if (glyph.glyph_index == 0) continue;
+        if (glyph.glyph_index == 0) return;
 
         for (int p = 0; p < kSubpixelPhases; ++p)
         {
@@ -211,6 +298,19 @@ OsdFontFace::OsdFontFace(OsdFontWeight weight, float pixel_height)
                 bmp.pixels.assign(static_cast<size_t>(bmp.width) * static_cast<size_t>(bmp.height), 0);
                 stbtt_MakeGlyphBitmapSubpixel(&info, bmp.pixels.data(), bmp.width, bmp.height, bmp.width, scale, scale, shift_x, 0.0f, glyph.glyph_index);
             }
+        }
+    };
+
+    for (int i = 0; i < kGlyphCount; ++i)
+    {
+        cache_glyph(static_cast<uint32_t>(kFirstChar + i), impl->glyphs[static_cast<size_t>(i)]);
+    }
+    if (weight == OsdFontWeight::NotoSansScMedium)
+    {
+        for (size_t i = 0; i < kNotoSansScCodepointCount; ++i)
+        {
+            const uint32_t cp = kNotoSansScCodepoints[i];
+            cache_glyph(cp, impl->extra_glyphs[cp]);
         }
     }
 
@@ -270,6 +370,11 @@ float OsdFontFace::cap_height() const
     return _impl ? _impl->cap_height : 0.0f;
 }
 
+float OsdFontFace::visual_center_above_baseline() const
+{
+    return _impl ? _impl->visual_center_above_baseline : 0.0f;
+}
+
 float OsdFontFace::digit_cell_width() const
 {
     return _impl ? _impl->digit_cell_width : 0.0f;
@@ -289,18 +394,31 @@ float OsdFontFace::measure_text(const std::string & text) const
 {
     if (!_impl || text.empty()) return 0.0f;
     float width = 0.0f;
-    int prev_idx = -1;
-    for (const char ch : text)
+    int prev_ascii_idx = -1;
+    size_t pos = 0;
+    while (pos < text.size())
     {
-        const int uc = static_cast<unsigned char>(ch);
-        if (uc < kFirstChar || uc > kLastChar) continue;
-        const int idx = uc - kFirstChar;
-        if (prev_idx >= 0)
+        const uint32_t cp = next_utf8_codepoint(text, pos);
+        const CachedGlyph * glyph = _impl->find_glyph(cp);
+        if (!glyph)
         {
-            width += _impl->kern[static_cast<size_t>(prev_idx) * static_cast<size_t>(kGlyphCount) + static_cast<size_t>(idx)];
+            prev_ascii_idx = -1;
+            continue;
         }
-        width += _impl->glyphs[static_cast<size_t>(idx)].advance;
-        prev_idx = idx;
+        if (cp >= static_cast<uint32_t>(kFirstChar) && cp <= static_cast<uint32_t>(kLastChar))
+        {
+            const int idx = static_cast<int>(cp) - kFirstChar;
+            if (prev_ascii_idx >= 0)
+            {
+                width += _impl->kern[static_cast<size_t>(prev_ascii_idx) * static_cast<size_t>(kGlyphCount) + static_cast<size_t>(idx)];
+            }
+            prev_ascii_idx = idx;
+        }
+        else
+        {
+            prev_ascii_idx = -1;
+        }
+        width += glyph->advance;
     }
     return width;
 }
@@ -339,19 +457,32 @@ float OsdFontFace::draw_text(cv::Mat & rgba_pm, float x, float baseline_y, const
 
     const int base_y = static_cast<int>(std::lround(baseline_y));
     float pen_x = x;
-    int prev_idx = -1;
-    for (const char ch : text)
+    int prev_ascii_idx = -1;
+    size_t pos = 0;
+    while (pos < text.size())
     {
-        const int uc = static_cast<unsigned char>(ch);
-        if (uc < kFirstChar || uc > kLastChar) continue;
-        const int idx = uc - kFirstChar;
-        if (prev_idx >= 0)
+        const uint32_t cp = next_utf8_codepoint(text, pos);
+        const CachedGlyph * glyph = _impl->find_glyph(cp);
+        if (!glyph)
         {
-            pen_x += _impl->kern[static_cast<size_t>(prev_idx) * static_cast<size_t>(kGlyphCount) + static_cast<size_t>(idx)];
+            prev_ascii_idx = -1;
+            continue;
         }
-        _impl->blit_glyph(rgba_pm, idx, pen_x, base_y, color);
-        pen_x += _impl->glyphs[static_cast<size_t>(idx)].advance;
-        prev_idx = idx;
+        if (cp >= static_cast<uint32_t>(kFirstChar) && cp <= static_cast<uint32_t>(kLastChar))
+        {
+            const int idx = static_cast<int>(cp) - kFirstChar;
+            if (prev_ascii_idx >= 0)
+            {
+                pen_x += _impl->kern[static_cast<size_t>(prev_ascii_idx) * static_cast<size_t>(kGlyphCount) + static_cast<size_t>(idx)];
+            }
+            prev_ascii_idx = idx;
+        }
+        else
+        {
+            prev_ascii_idx = -1;
+        }
+        _impl->blit_glyph(rgba_pm, *glyph, pen_x, base_y, color);
+        pen_x += glyph->advance;
     }
     return pen_x;
 }
@@ -375,26 +506,27 @@ float OsdFontFace::draw_tabular(cv::Mat & rgba_pm, float x, float baseline_y, co
         const int uc = static_cast<unsigned char>(ch);
         if (uc < kFirstChar || uc > kLastChar) continue;
         const int idx = uc - kFirstChar;
-        const float adv = _impl->glyphs[static_cast<size_t>(idx)].advance;
+        const CachedGlyph & glyph = _impl->glyphs[static_cast<size_t>(idx)];
+        const float adv = glyph.advance;
         if (uc >= '0' && uc <= '9')
         {
             const float cell = _impl->digit_cell_width;
-            _impl->blit_glyph(rgba_pm, idx, pen_x + 0.5f * (cell - adv), base_y, color);
+            _impl->blit_glyph(rgba_pm, glyph, pen_x + 0.5f * (cell - adv), base_y, color);
             pen_x += cell;
         }
         else if (uc == '.')
         {
-            _impl->blit_glyph(rgba_pm, idx, pen_x, base_y, color);
+            _impl->blit_glyph(rgba_pm, glyph, pen_x, base_y, color);
             pen_x += _impl->dot_cell_width;
         }
         else if (uc == '-')
         {
-            _impl->blit_glyph(rgba_pm, idx, pen_x, base_y, color);
+            _impl->blit_glyph(rgba_pm, glyph, pen_x, base_y, color);
             pen_x += _impl->dash_cell_width;
         }
         else
         {
-            _impl->blit_glyph(rgba_pm, idx, pen_x, base_y, color);
+            _impl->blit_glyph(rgba_pm, glyph, pen_x, base_y, color);
             pen_x += adv;
         }
     }

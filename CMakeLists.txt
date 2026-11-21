@@ -265,7 +265,7 @@ install(DIRECTORY skills/ DESTINATION "${TRDROP_INSTALL_SKILLDIR}")
 install(FILES README.md DESTINATION "${TRDROP_INSTALL_DOCDIR}")
 install(FILES docs/icon.svg docs/motion-video.jpg docs/resolution-video.jpg DESTINATION "${TRDROP_INSTALL_DOCDIR}/docs")
 install(FILES LICENSE DESTINATION "${TRDROP_INSTALL_LICENSEDIR}" RENAME trdrop++-LICENSE.txt)
-install(FILES licenses/LeagueSpartan-OFL.txt licenses/stb-LICENSE.txt DESTINATION "${TRDROP_INSTALL_LICENSEDIR}")
+install(FILES licenses/LeagueSpartan-OFL.txt licenses/NotoSansSC-OFL.txt licenses/stb-LICENSE.txt DESTINATION "${TRDROP_INSTALL_LICENSEDIR}")
 
 # ---- package: the installed folder as an archive
 #   cmake --build <build dir> --target package
