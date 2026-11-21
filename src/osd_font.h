@@ -8,7 +8,7 @@
 
 namespace trdrop {
 
-enum class OsdFontWeight { Bold, Medium };
+enum class OsdFontWeight { Bold, Medium, NotoSansScMedium };
 
 struct OsdColor {
     uint8_t r = 255;
@@ -27,6 +27,7 @@ public:
     float ascent() const;
     float descent() const;
     float cap_height() const;
+    float visual_center_above_baseline() const;
     float digit_cell_width() const;
     float dot_cell_width() const;
     float dash_cell_width() const;
