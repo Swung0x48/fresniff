@@ -70,6 +70,10 @@ const uint32_t kOverlayBaseSpirv[] = {
 #include "overlay_base.spv.inc"
 };
 
+const uint32_t kOverlayBlurSpirv[] = {
+#include "overlay_blur.spv.inc"
+};
+
 const uint32_t kOverlayDrawSpirv[] = {
 #include "overlay_draw.spv.inc"
 };
@@ -188,7 +192,8 @@ public:
             _select = _create_compute(kMotionSelectSpirv, sizeof(kMotionSelectSpirv), 3, sizeof(SelectPush));
             _texture = _create_compute(kMotionTextureSpirv, sizeof(kMotionTextureSpirv), 4, sizeof(TexturePush));
             _overlay_base = _create_compute(kOverlayBaseSpirv, sizeof(kOverlayBaseSpirv), 3, sizeof(OverlayBasePush));
-            _overlay_draw = _create_compute(kOverlayDrawSpirv, sizeof(kOverlayDrawSpirv), 5, sizeof(OverlayDrawPush));
+            _overlay_blur = _create_compute(kOverlayBlurSpirv, sizeof(kOverlayBlurSpirv), 3, sizeof(OverlayBlurPush));
+            _overlay_draw = _create_compute(kOverlayDrawSpirv, sizeof(kOverlayDrawSpirv), 7, sizeof(OverlayDrawPush));
             _lattice = _create_compute(kResolutionLatticeSpirv, sizeof(kResolutionLatticeSpirv), 2, sizeof(LatticePush));
             _edge = _create_compute(kResolutionEdgeSpirv, sizeof(kResolutionEdgeSpirv), 2, sizeof(EdgePush));
             _stairs = _create_compute(kResolutionStairsSpirv, sizeof(kResolutionStairsSpirv), 2, sizeof(StairsPush));
@@ -961,10 +966,20 @@ private:
         VkFence fence = VK_NULL_HANDLE;
         bool busy = false;
         VkDescriptorSet set = VK_NULL_HANDLE;
+        VkDescriptorSet blur_set_a = VK_NULL_HANDLE;
+        VkDescriptorSet blur_set_b = VK_NULL_HANDLE;
         // the scene, uploaded
         Buffer segments;
         Buffer tiles;
         Buffer text;
+        Buffer card_data;
+        //! ROI Gaussian blur ping-pong buffers (vec4 YUV)
+        Buffer blur_a;
+        Buffer blur_b;
+        //! overlay upload cache key & generation (skip re-upload when metrics didn't change)
+        uint64_t overlay_key = UINT64_MAX;
+        uint64_t overlay_generation = 0;
+        size_t overlay_bytes = 0;
         //! the drawn picture, copied into the frame of the encoder
         Buffer output;
         AVFrame * frame = nullptr;
@@ -1382,33 +1397,99 @@ private:
             slot.busy = false;
         }
 
-        // the scene as the buffers and the constants of overlay_draw.comp
+        // the scene as the buffers and the constants of overlay_blur.comp / overlay_draw.comp
         build_overlay_upload(scene, gpu.width, gpu.height, gpu.row_words, false, _overlay_upload);
         const OverlayDrawPush & push = _overlay_upload.push;
         _upload(slot.segments, _overlay_upload.segments.data(), _overlay_upload.segments.size() * sizeof(float));
         _upload(slot.tiles, _overlay_upload.tiles.data(), _overlay_upload.tiles.size() * sizeof(uint32_t));
-        _upload(slot.text, _overlay_upload.text.data(), _overlay_upload.text.size());
+        const uint64_t overlay_key = (static_cast<uint64_t>(index) << 32) | static_cast<uint64_t>(stream_index);
+        if (_overlay_upload.rgba_overlay)
+        {
+            const size_t bytes = _overlay_upload.overlay_bytes;
+            const bool unchanged = slot.overlay_key == overlay_key
+                                && slot.overlay_generation == _overlay_upload.overlay_generation
+                                && slot.overlay_bytes == bytes
+                                && _overlay_upload.overlay_generation != 0
+                                && slot.text.size >= bytes;
+            if (!unchanged)
+            {
+                _ensure_buffer(slot.text, std::max<VkDeviceSize>(bytes, 32), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, {
+                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+                });
+                if (bytes > 0) copy_rgba_overlay(scene.overlay, slot.text.mapped);
+                if (!slot.text.coherent)
+                {
+                    VkMappedMemoryRange range { VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE };
+                    range.memory = slot.text.memory;
+                    range.size = VK_WHOLE_SIZE;
+                    check(_fn.vkFlushMappedMemoryRanges(_device, 1, &range), "vkFlushMappedMemoryRanges");
+                }
+                slot.overlay_key = overlay_key;
+                slot.overlay_generation = _overlay_upload.overlay_generation;
+                slot.overlay_bytes = bytes;
+            }
+        }
+        else
+        {
+            _upload(slot.text, _overlay_upload.text.data(), _overlay_upload.text.size());
+            slot.overlay_key = UINT64_MAX;
+            slot.overlay_generation = 0;
+            slot.overlay_bytes = 0;
+        }
+        _upload(slot.card_data, _overlay_upload.card_data.data(), _overlay_upload.card_data.size());
+        const VkDeviceSize blur_bytes = _overlay_upload.card_enabled
+            ? std::max<VkDeviceSize>(static_cast<VkDeviceSize>(_overlay_upload.blur.blur_w) * static_cast<VkDeviceSize>(_overlay_upload.blur.blur_h) * 4 * sizeof(float), 64)
+            : 64;
+        _ensure_buffer(slot.blur_a, blur_bytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, { VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0 });
+        if (_overlay_upload.card_enabled)
+        {
+            _ensure_buffer(slot.blur_b, blur_bytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, { VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0 });
+        }
         _ensure_buffer(slot.output, gpu.picture_bytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                        { VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0 });
 
-        const VkDescriptorBufferInfo buffers[5] = {
-            { gpu.pictures[static_cast<size_t>(picture)].buffer, 0, VK_WHOLE_SIZE },
+        const VkBuffer picture_buffer = gpu.pictures[static_cast<size_t>(picture)].buffer;
+        const VkDescriptorBufferInfo buffers[7] = {
+            { picture_buffer, 0, VK_WHOLE_SIZE },
             { slot.segments.buffer, 0, VK_WHOLE_SIZE },
             { slot.tiles.buffer, 0, VK_WHOLE_SIZE },
             { slot.text.buffer, 0, VK_WHOLE_SIZE },
             { slot.output.buffer, 0, VK_WHOLE_SIZE },
+            { slot.blur_a.buffer, 0, VK_WHOLE_SIZE },
+            { slot.card_data.buffer, 0, VK_WHOLE_SIZE },
         };
-        std::array<VkWriteDescriptorSet, 5> writes {};
-        for (uint32_t b = 0; b < 5; ++b)
+        const VkDescriptorBufferInfo blur_a_buffers[3] = {
+            { picture_buffer, 0, VK_WHOLE_SIZE },
+            { slot.blur_b.buffer, 0, VK_WHOLE_SIZE },
+            { slot.blur_a.buffer, 0, VK_WHOLE_SIZE },
+        };
+        const VkDescriptorBufferInfo blur_b_buffers[3] = {
+            { picture_buffer, 0, VK_WHOLE_SIZE },
+            { slot.blur_a.buffer, 0, VK_WHOLE_SIZE },
+            { slot.blur_b.buffer, 0, VK_WHOLE_SIZE },
+        };
+        std::array<VkWriteDescriptorSet, 13> writes {};
+        uint32_t write_count = 0;
+        auto push_writes = [&](VkDescriptorSet dst_set, const VkDescriptorBufferInfo * infos, uint32_t count) {
+            for (uint32_t b = 0; b < count; ++b)
+            {
+                VkWriteDescriptorSet & w = writes[write_count++];
+                w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                w.dstSet = dst_set;
+                w.dstBinding = b;
+                w.descriptorCount = 1;
+                w.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                w.pBufferInfo = &infos[b];
+            }
+        };
+        push_writes(slot.set, buffers, 7);
+        if (_overlay_upload.card_enabled)
         {
-            writes[b].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            writes[b].dstSet = slot.set;
-            writes[b].dstBinding = b;
-            writes[b].descriptorCount = 1;
-            writes[b].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-            writes[b].pBufferInfo = &buffers[b];
+            push_writes(slot.blur_set_a, blur_a_buffers, 3);
+            push_writes(slot.blur_set_b, blur_b_buffers, 3);
         }
-        _fn.vkUpdateDescriptorSets(_device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+        _fn.vkUpdateDescriptorSets(_device, write_count, writes.data(), 0, nullptr);
 
         // a frame of the encoder: NV12, one image with two planes or an image per plane
         av_frame_unref(slot.frame);
@@ -1463,6 +1544,43 @@ private:
         dependency.memoryBarrierCount = 1;
         dependency.pMemoryBarriers = &before;
         _fn.vkCmdPipelineBarrier2(slot.command_buffer, &dependency);
+
+        if (_overlay_upload.card_enabled)
+        {
+            const uint32_t blur_gx = (_overlay_upload.blur.blur_w + 7u) / 8u;
+            const uint32_t blur_gy = (_overlay_upload.blur.blur_h + 7u) / 8u;
+            OverlayBlurPush blur_push = _overlay_upload.blur;
+            VkMemoryBarrier2 blur_barrier { VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
+            blur_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+            blur_barrier.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+            blur_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+            blur_barrier.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+            VkDependencyInfo blur_dep { VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+            blur_dep.memoryBarrierCount = 1;
+            blur_dep.pMemoryBarriers = &blur_barrier;
+
+            _fn.vkCmdBindPipeline(slot.command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, _overlay_blur.pipeline);
+            // Pass 0: downsample NV12 card ROI -> blur_a
+            blur_push.pass = 0u;
+            _fn.vkCmdBindDescriptorSets(slot.command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, _overlay_blur.layout, 0, 1, &slot.blur_set_a, 0, nullptr);
+            _fn.vkCmdPushConstants(slot.command_buffer, _overlay_blur.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(blur_push), &blur_push);
+            _fn.vkCmdDispatch(slot.command_buffer, blur_gx, blur_gy, 1);
+            _fn.vkCmdPipelineBarrier2(slot.command_buffer, &blur_dep);
+
+            // Pass 1: horizontal 1D Gaussian (blur_a -> blur_b)
+            blur_push.pass = 1u;
+            _fn.vkCmdBindDescriptorSets(slot.command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, _overlay_blur.layout, 0, 1, &slot.blur_set_b, 0, nullptr);
+            _fn.vkCmdPushConstants(slot.command_buffer, _overlay_blur.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(blur_push), &blur_push);
+            _fn.vkCmdDispatch(slot.command_buffer, blur_gx, blur_gy, 1);
+            _fn.vkCmdPipelineBarrier2(slot.command_buffer, &blur_dep);
+
+            // Pass 2: vertical 1D Gaussian (blur_b -> blur_a)
+            blur_push.pass = 2u;
+            _fn.vkCmdBindDescriptorSets(slot.command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, _overlay_blur.layout, 0, 1, &slot.blur_set_a, 0, nullptr);
+            _fn.vkCmdPushConstants(slot.command_buffer, _overlay_blur.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(blur_push), &blur_push);
+            _fn.vkCmdDispatch(slot.command_buffer, blur_gx, blur_gy, 1);
+            _fn.vkCmdPipelineBarrier2(slot.command_buffer, &blur_dep);
+        }
 
         _fn.vkCmdBindPipeline(slot.command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, _overlay_draw.pipeline);
         _fn.vkCmdBindDescriptorSets(slot.command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, _overlay_draw.layout, 0, 1, &slot.set, 0, nullptr);
@@ -1810,9 +1928,9 @@ private:
         // ... and the picture of the motion video; a set per motion video frame being drawn
         // ... and for sparse motion what the grid found and the texture
         // ... and for the resolution the pixel grid, the edge columns and their stair steps
-        VkDescriptorPoolSize pool_size { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, (kBindings + 2 + 4 + 3 + 3 + 4 + 2 + 2 + 2) * set_count + 5 * static_cast<uint32_t>(kDrawSlots) };
+        VkDescriptorPoolSize pool_size { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, (kBindings + 2 + 4 + 3 + 3 + 4 + 2 + 2 + 2) * set_count + (7 + 3 + 3) * static_cast<uint32_t>(kDrawSlots) };
         VkDescriptorPoolCreateInfo pool_info { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
-        pool_info.maxSets = 9 * set_count + static_cast<uint32_t>(kDrawSlots);
+        pool_info.maxSets = 9 * set_count + 3 * static_cast<uint32_t>(kDrawSlots);
         pool_info.poolSizeCount = 1;
         pool_info.pPoolSizes = &pool_size;
         check(_fn.vkCreateDescriptorPool(_device, &pool_info, nullptr, &_descriptor_pool), "vkCreateDescriptorPool");
@@ -1873,6 +1991,9 @@ private:
             set_info.descriptorSetCount = 1;
             set_info.pSetLayouts = &_overlay_draw.set_layout;
             check(_fn.vkAllocateDescriptorSets(_device, &set_info, &slot.set), "vkAllocateDescriptorSets");
+            set_info.pSetLayouts = &_overlay_blur.set_layout;
+            check(_fn.vkAllocateDescriptorSets(_device, &set_info, &slot.blur_set_a), "vkAllocateDescriptorSets");
+            check(_fn.vkAllocateDescriptorSets(_device, &set_info, &slot.blur_set_b), "vkAllocateDescriptorSets");
             slot.frame = av_frame_alloc();
             if (!slot.frame) throw std::runtime_error("out of memory");
         }
@@ -1941,7 +2062,7 @@ private:
             _fn.vkDeviceWaitIdle(_device);
             for (DrawSlot & slot : _draw_slots)
             {
-                for (Buffer * buffer : { &slot.segments, &slot.tiles, &slot.text, &slot.output }) _destroy_buffer(*buffer);
+                for (Buffer * buffer : { &slot.segments, &slot.tiles, &slot.text, &slot.card_data, &slot.blur_a, &slot.blur_b, &slot.output }) _destroy_buffer(*buffer);
                 if (slot.fence) _fn.vkDestroyFence(_device, slot.fence, nullptr);
                 slot.fence = VK_NULL_HANDLE;
             }
@@ -1951,6 +2072,7 @@ private:
                 gpu.pictures.clear();
             }
             _destroy_compute(_overlay_base);
+            _destroy_compute(_overlay_blur);
             _destroy_compute(_overlay_draw);
             for (Slot & slot : _slots)
             {
@@ -2038,6 +2160,7 @@ private:
     std::array<DrawSlot, kDrawSlots> _draw_slots;
     size_t _draws = 0;
     Compute _overlay_base;
+    Compute _overlay_blur;
     Compute _overlay_draw;
     OverlayUpload _overlay_upload;
     Compute _pyramid;

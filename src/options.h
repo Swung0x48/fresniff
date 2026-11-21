@@ -123,6 +123,8 @@ struct Options {
     std::vector<std::string> resolution_videos;
     //! the arrows of the motion video are drawn this many times longer than the motion
     double arrow_scale = 1.0;
+    //! --motion-arrows: draw optical-flow arrows and rejected matches on the motion video (off by default)
+    bool motion_arrows = false;
     //! --motion-video-native: the motion video at the resolution of the input, not of the motion
     bool motion_video_native = false;
     //! called while the videos are analyzed (frames read, progress 0 - 1 or < 0 if unknown), the analysis

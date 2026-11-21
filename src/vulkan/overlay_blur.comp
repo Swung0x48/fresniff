@@ -1,0 +1,119 @@
+#version 450
+// Motion video frosted-glass OSD: 3-pass ROI-only downsampled separable Gaussian blur directly in YUV.
+//
+// Pass 0: area-average ds x ds luma pixels and (ds/2) x (ds/2) chroma pairs from the NV12 base picture
+//         (see overlay_base.comp) over the padded card ROI (roi_x, roi_y, ds even), applying dim, into vec4(Y,U,V,0).
+// Pass 1: horizontal 1D separable Gaussian blur (Src -> Dst), replicate-clamped at ROI bounds.
+// Pass 2: vertical 1D separable Gaussian blur (Src -> Dst), replicate-clamped at ROI bounds.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) readonly buffer Base { uint base[]; };
+layout(set = 0, binding = 1) readonly buffer Src { vec4 src[]; };
+layout(set = 0, binding = 2) writeonly buffer Dst { vec4 dst[]; };
+
+layout(push_constant) uniform Params {
+    uint width;
+    uint height;
+    uint row_words;
+    uint roi_x;
+    uint roi_y;
+    uint blur_w;
+    uint blur_h;
+    uint ds;
+    uint pass;
+    int radius;
+    float sigma;
+    float dim;
+} params;
+
+const vec3 kBlack = vec3(16.0, 128.0, 128.0);
+
+void main()
+{
+    const uint bx = gl_GlobalInvocationID.x;
+    const uint by = gl_GlobalInvocationID.y;
+    if (bx >= params.blur_w || by >= params.blur_h) return;
+
+    if (params.pass == 0u)
+    {
+        const uint ds = params.ds;
+        const uint x0 = params.roi_x + bx * ds;
+        const uint y0 = params.roi_y + by * ds;
+        const uint max_x = params.width - 1u;
+        const uint max_y = params.height - 1u;
+
+        float sum_y = 0.0;
+        for (uint dy = 0u; dy < ds; ++dy)
+        {
+            const uint sy = min(y0 + dy, max_y);
+            const uint row_base = sy * params.row_words;
+            for (uint dx = 0u; dx < ds; ++dx)
+            {
+                const uint sx = min(x0 + dx, max_x);
+                const uint word = base[row_base + (sx >> 2u)];
+                sum_y += float((word >> (8u * (sx & 3u))) & 255u);
+            }
+        }
+        const float mean_y = sum_y / float(ds * ds);
+
+        const uint cds = max(ds >> 1u, 1u);
+        const uint cx0 = x0 >> 1u;
+        const uint cy0 = y0 >> 1u;
+        const uint max_cx = (params.width >> 1u) - 1u;
+        const uint max_cy = (params.height >> 1u) - 1u;
+        float sum_u = 0.0;
+        float sum_v = 0.0;
+        for (uint dy = 0u; dy < cds; ++dy)
+        {
+            const uint cy = min(cy0 + dy, max_cy);
+            const uint row_base = (params.height + cy) * params.row_words;
+            for (uint dx = 0u; dx < cds; ++dx)
+            {
+                const uint cx = min(cx0 + dx, max_cx);
+                const uint word = base[row_base + (cx >> 1u)];
+                const uint shift = 16u * (cx & 1u);
+                sum_u += float((word >> shift) & 255u);
+                sum_v += float((word >> (shift + 8u)) & 255u);
+            }
+        }
+        const float chroma_area = float(cds * cds);
+        vec3 yuv = vec3(mean_y, sum_u / chroma_area, sum_v / chroma_area);
+        yuv = kBlack + (yuv - kBlack) * params.dim;
+        dst[by * params.blur_w + bx] = vec4(yuv, 0.0);
+        return;
+    }
+
+    const float inv_2sigma2 = 0.5 / max(params.sigma * params.sigma, 1e-4);
+    vec3 sum = src[by * params.blur_w + bx].xyz;
+    float w_sum = 1.0;
+
+    if (params.pass == 1u)
+    {
+        const uint row_off = by * params.blur_w;
+        const int ibx = int(bx);
+        const int max_x = int(params.blur_w) - 1;
+        for (int k = 1; k <= params.radius; ++k)
+        {
+            const float w = exp(-float(k * k) * inv_2sigma2);
+            const uint lx = uint(max(ibx - k, 0));
+            const uint rx = uint(min(ibx + k, max_x));
+            sum += w * (src[row_off + lx].xyz + src[row_off + rx].xyz);
+            w_sum += 2.0 * w;
+        }
+    }
+    else
+    {
+        const int iby = int(by);
+        const int max_y = int(params.blur_h) - 1;
+        for (int k = 1; k <= params.radius; ++k)
+        {
+            const float w = exp(-float(k * k) * inv_2sigma2);
+            const uint ty = uint(max(iby - k, 0));
+            const uint by2 = uint(min(iby + k, max_y));
+            sum += w * (src[ty * params.blur_w + bx].xyz + src[by2 * params.blur_w + bx].xyz);
+            w_sum += 2.0 * w;
+        }
+    }
+    dst[by * params.blur_w + bx] = vec4(sum / w_sum, 0.0);
+}

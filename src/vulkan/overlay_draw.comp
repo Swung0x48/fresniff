@@ -1,20 +1,26 @@
 #version 450
 // Motion video: draws the scene of a frame on its picture (see overlay_base.comp for the layout of a picture).
 //
-// The picture is dimmed, the segments (lines with round ends, anti-aliased by their distance) are blended over
-// it in the order of the list, then the text box is darkened and gets the text in white. Segments with a
-// negative radius are drawn above the box: after it was darkened, before the text (they come last in the list).
-// Everything happens in YUV: dimming and blending are affine, so the result is the same as in RGB.
+// Legacy mode (flags bit 0 == 0, used by --resolution-video):
+//   The picture is dimmed, segments (!above_box) are blended over it, then the text box is darkened by box_dim,
+//   segments (above_box) are drawn, and single-channel white text coverage is blended on top.
 //
-// The segments are sorted into tiles on the CPU: tiles[t] .. tiles[t + 1] is the range of tile t in the index
-// list, which follows the tile_count + 1 offsets. An invocation draws a block of 4x2 pixels, which lies in
-// one tile.
+// Frosted-glass OSD card mode (flags bit 0 == 1, used by --motion-video):
+//   The picture is dimmed (1.0 by default), optional !above_box segments (motion arrows) are blended, then the
+//   rounded frosted-glass card is composited over its expanded bounding box using the ROI-only blurred YUV
+//   buffer (binding 5), card style & 1D smooth chart samples (binding 6), and premultiplied RGBA8 typography
+//   overlay (binding 3, flags bit 1 == 1).
+//
+// Everything happens in YUV: dimming, Gaussian blur, and premultiplied alpha blending are affine, so the
+// result matches RGB compositing without round-tripping untouched gameplay pixels through RGB.
+//
+// An invocation draws a block of 4x2 pixels, which lies in one tile.
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
 struct Segment {
     vec4 ends;  // x0, y0, x1, y1
-    vec4 look;  // radius, Y, U, V
+    vec4 look;  // radius (< 0: above_box), Y, U, V
 };
 
 layout(set = 0, binding = 0) readonly buffer Base { uint base[]; };
@@ -22,6 +28,47 @@ layout(set = 0, binding = 1) readonly buffer Segments { Segment segments[]; };
 layout(set = 0, binding = 2) readonly buffer Tiles { uint tiles[]; };
 layout(set = 0, binding = 3) readonly buffer Text { uint text[]; };
 layout(set = 0, binding = 4) writeonly buffer Result { uint result[]; };
+layout(set = 0, binding = 5) readonly buffer Blur { vec4 blur[]; };
+
+layout(set = 0, binding = 6) readonly buffer Card {
+    vec4 card_rect;            // x, y, width, height
+    uvec4 expand_rect;         // x0, y0, x1, y1 (clipped to frame)
+    uvec4 blur_info;           // roi_x, roi_y, blur_w, blur_h
+    uint blur_ds;
+    uint has_chart;
+    uint chart_cols;
+    uint grid_count;
+    float corner_radius;
+    float vibrancy;
+    float sheen_alpha;
+    float sheen_height;
+    vec4 tint_top;             // Y, U, V, alpha
+    vec4 tint_bottom;          // Y, U, V, alpha
+    float border_width;
+    float border_alpha_top;
+    float border_alpha_bottom;
+    float border_power;
+    float shadow_offset_y;
+    float shadow_alpha;
+    float shadow_decay;
+    float shadow_pad;
+    vec4 plot_rect;            // x, y, width, height
+    vec4 grid_y;
+    vec4 grid_alpha;
+    vec4 primary_color;        // Y, U, V, alpha
+    vec4 secondary_color;      // Y, U, V, alpha
+    float primary_half_width;
+    float secondary_half_width;
+    float primary_fill_alpha;
+    float primary_fill_power;
+    float grid_half_width;
+    float primary_glow_alpha;
+    float secondary_glow_alpha;
+    float pad0;
+    vec4 primary_dot;          // x, y, core_radius, glow_radius
+    vec4 secondary_dot;        // x, y, core_radius, glow_radius
+    vec2 samples[];            // (primary_y, secondary_y), < 0 means missing
+} card;
 
 layout(push_constant) uniform Params {
     uint width;
@@ -30,13 +77,14 @@ layout(push_constant) uniform Params {
     uint tile_size;       // a multiple of 4
     uint tiles_x;
     uint tiles_y;
-    uint box_x;           // the text box, box_width 0: none
+    uint box_x;           // legacy text box or RGBA card rect; box_width 0: none
     uint box_y;
     uint box_width;
     uint box_height;
-    uint text_row_words;  // uints per row of the text coverage
+    uint text_row_words;  // legacy: uints per row of CV_8UC1 text coverage; RGBA: box_width
     float dim;
     float box_dim;
+    uint flags;           // bit 0: has_card, bit 1: rgba_overlay, bit 2: bt709
 } params;
 
 const vec3 kBlack = vec3(16.0, 128.0, 128.0);
@@ -56,11 +104,263 @@ float distance_to(vec2 p, vec4 ends)
     return distance(p, a + t * ab);
 }
 
+float sd_rounded_box(vec2 p, vec2 center, vec2 half_size, float radius)
+{
+    const vec2 q = abs(p - center) - (half_size - vec2(radius));
+    return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
+}
+
+vec3 rgb_pm_to_yuv_delta(vec3 rgb_pm, bool bt709)
+{
+    const vec3 c = rgb_pm * (1.0 / 255.0);
+    if (bt709)
+    {
+        return vec3(
+            46.559 * c.r + 156.629 * c.g + 15.812 * c.b,
+            -25.664 * c.r - 86.336 * c.g + 112.0 * c.b,
+            112.0 * c.r - 101.730 * c.g - 10.270 * c.b
+        );
+    }
+    return vec3(
+        65.481 * c.r + 128.553 * c.g + 24.966 * c.b,
+        -37.797 * c.r - 74.203 * c.g + 112.0 * c.b,
+        112.0 * c.r - 93.786 * c.g - 18.214 * c.b
+    );
+}
+
+vec3 sample_blur_bilinear(vec2 p)
+{
+    const float bu = clamp((p.x - float(card.blur_info.x)) / float(card.blur_ds) - 0.5, 0.0, float(card.blur_info.z - 1u));
+    const float bv = clamp((p.y - float(card.blur_info.y)) / float(card.blur_ds) - 0.5, 0.0, float(card.blur_info.w - 1u));
+    const uint u0 = uint(floor(bu));
+    const uint v0 = uint(floor(bv));
+    const uint u1 = min(u0 + 1u, card.blur_info.z - 1u);
+    const uint v1 = min(v0 + 1u, card.blur_info.w - 1u);
+    const float fu = bu - float(u0);
+    const float fv = bv - float(v0);
+    const uint row0 = v0 * card.blur_info.z;
+    const uint row1 = v1 * card.blur_info.z;
+    const vec3 top = mix(blur[row0 + u0].xyz, blur[row0 + u1].xyz, fu);
+    const vec3 bot = mix(blur[row1 + u0].xyz, blur[row1 + u1].xyz, fu);
+    return mix(top, bot, fv);
+}
+
+vec3 composite_card_pixel(vec3 pix, uint x, uint y, bool rgba_overlay, bool bt709)
+{
+    const vec2 p = vec2(float(x) + 0.5, float(y) + 0.5);
+    const vec2 card_pos = card.card_rect.xy;
+    const vec2 card_size = card.card_rect.zw;
+    const vec2 card_half = 0.5 * card_size;
+    const vec2 card_center = card_pos + card_half;
+    const float r = min(card.corner_radius, min(card_half.x, card_half.y));
+
+    const float sdf = sd_rounded_box(p, card_center, card_half, r);
+    const float inside = clamp(0.5 - sdf, 0.0, 1.0);
+
+    // Soft outer drop shadow outside the rounded card (applied to pix before card AA mix)
+    if (inside < 1.0 && card.shadow_alpha > 0.0 && card.shadow_decay > 0.0)
+    {
+        const float sdf_sh = sd_rounded_box(p, card_center + vec2(0.0, card.shadow_offset_y), card_half, r);
+        if (sdf_sh < card.shadow_pad)
+        {
+            const float d_sh = max(sdf_sh, 0.0);
+            const float edge_fade = clamp((card.shadow_pad - d_sh) / max(0.25 * card.shadow_pad, 1.0), 0.0, 1.0);
+            const float sh = card.shadow_alpha * exp(-d_sh / card.shadow_decay) * edge_fade;
+            pix = mix(pix, kBlack, sh);
+        }
+    }
+
+    if (inside <= 0.0) return pix;
+
+    // 1. Bilinear upsample of ROI-blurred YUV backdrop
+    vec3 glass = sample_blur_bilinear(p);
+
+    // 2. Vibrancy lift (chroma saturation boost around neutral 128)
+    glass.yz = clamp(vec2(128.0) + (glass.yz - vec2(128.0)) * card.vibrancy, 16.0, 240.0);
+
+    // 3. Vertical gradient frosted tint
+    const float v = clamp((p.y - card_pos.y) / max(card_size.y, 1.0), 0.0, 1.0);
+    const vec4 tint = mix(card.tint_top, card.tint_bottom, v);
+    glass = mix(glass, tint.xyz, tint.w);
+
+    // 4. Top ambient sheen
+    if (card.sheen_alpha > 0.0 && card.sheen_height > 0.0)
+    {
+        const float t_sheen = clamp(1.0 - v / card.sheen_height, 0.0, 1.0);
+        glass = mix(glass, kWhite, card.sheen_alpha * t_sheen * t_sheen);
+    }
+
+    // 5. Directional specular inner hairline rim
+    if (card.border_width > 0.0)
+    {
+        const float border_cov = inside * clamp(sdf + card.border_width + 0.5, 0.0, 1.0);
+        if (border_cov > 0.0)
+        {
+            const float rim_a = card.border_alpha_bottom
+                              + (card.border_alpha_top - card.border_alpha_bottom) * pow(max(1.0 - v, 0.0), card.border_power);
+            glass = mix(glass, kWhite, border_cov * rim_a);
+        }
+    }
+
+    // 6. Chart: horizontal hairlines, gradient area fill under primary curve, and smooth dual-line union SDF
+    if (card.has_chart != 0u && card.chart_cols >= 2u)
+    {
+        const float px0 = card.plot_rect.x;
+        const float py0 = card.plot_rect.y;
+        const float pw = card.plot_rect.z;
+        const float ph = card.plot_rect.w;
+        const float px1 = px0 + pw;
+        const float py1 = py0 + ph;
+
+        // Horizontal grid hairlines
+        if (card.grid_count > 0u && p.x >= px0 - 0.5 && p.x <= px1 + 0.5 && p.y >= py0 - 2.0 && p.y <= py1 + 2.0)
+        {
+            const float x_cov = clamp(min(p.x - px0, px1 - p.x) + 0.5, 0.0, 1.0);
+            float grid_a = 0.0;
+            if (card.grid_count > 0u) grid_a = max(grid_a, clamp(card.grid_half_width + 0.5 - abs(p.y - card.grid_y.x), 0.0, 1.0) * card.grid_alpha.x);
+            if (card.grid_count > 1u) grid_a = max(grid_a, clamp(card.grid_half_width + 0.5 - abs(p.y - card.grid_y.y), 0.0, 1.0) * card.grid_alpha.y);
+            if (card.grid_count > 2u) grid_a = max(grid_a, clamp(card.grid_half_width + 0.5 - abs(p.y - card.grid_y.z), 0.0, 1.0) * card.grid_alpha.z);
+            if (card.grid_count > 3u) grid_a = max(grid_a, clamp(card.grid_half_width + 0.5 - abs(p.y - card.grid_y.w), 0.0, 1.0) * card.grid_alpha.w);
+            if (grid_a > 0.0) glass = mix(glass, kWhite, grid_a * x_cov);
+        }
+
+        // Vertical gradient area fill under primary Framerate curve (1px per column: x(c) = px0 + c)
+        const float fx = p.x - px0;
+        if (card.primary_fill_alpha > 0.0 && fx >= 0.0 && fx <= float(card.chart_cols - 1u) && p.y >= py0 - 1.0 && p.y <= py1 + 1.0)
+        {
+            const int c0 = min(int(floor(fx)), int(card.chart_cols) - 2);
+            const float y0 = card.samples[c0].x;
+            const float y1 = card.samples[c0 + 1].x;
+            if (y0 >= 0.0 && y1 >= 0.0)
+            {
+                const float y_fps = mix(y0, y1, fx - float(c0));
+                const float top_cov = clamp(p.y - y_fps + 0.5, 0.0, 1.0);
+                const float bot_cov = clamp(py1 - p.y + 0.5, 0.0, 1.0);
+                const float fill_cov = top_cov * bot_cov;
+                if (fill_cov > 0.0)
+                {
+                    const float frac = clamp((py1 - p.y) / max(py1 - y_fps, 1.0), 0.0, 1.0);
+                    const float fill_a = card.primary_fill_alpha * pow(frac, card.primary_fill_power);
+                    glass = mix(glass, card.primary_color.xyz, fill_cov * fill_a);
+                }
+            }
+        }
+
+        // Local polyline union SDF for primary and secondary curves (zero joint beading, x(c) = px0 + c)
+        const float max_hw = max(card.primary_half_width, card.secondary_half_width);
+        const float margin = max_hw + 2.0;
+        if (p.x >= px0 - margin && p.x <= px1 + margin && p.y >= py0 - margin && p.y <= py1 + margin)
+        {
+            const int last_col = int(card.chart_cols) - 1;
+            const int center_col = int(floor(fx));
+            const int search_r = int(ceil(max_hw + 1.5));
+            const int c_start = max(0, center_col - search_r);
+            const int c_end = min(last_col, center_col + search_r);
+
+            float d2_prim = 1e30;
+            float d2_sec = 1e30;
+            for (int c = c_start; c <= c_end; ++c)
+            {
+                const vec2 s0 = card.samples[c];
+                const float rx = fx - float(c);
+                const bool has_next = c < last_col;
+                const vec2 s1 = has_next ? card.samples[c + 1] : vec2(-1.0);
+                if (s0.x >= 0.0)
+                {
+                    const float ry = p.y - s0.x;
+                    if (s1.x >= 0.0)
+                    {
+                        const float dy = s1.x - s0.x;
+                        const float t = clamp((rx + ry * dy) / (1.0 + dy * dy), 0.0, 1.0);
+                        const float ex = rx - t;
+                        const float ey = ry - t * dy;
+                        d2_prim = min(d2_prim, ex * ex + ey * ey);
+                    }
+                    else
+                    {
+                        d2_prim = min(d2_prim, rx * rx + ry * ry);
+                    }
+                }
+                if (s0.y >= 0.0)
+                {
+                    const float ry = p.y - s0.y;
+                    if (s1.y >= 0.0)
+                    {
+                        const float dy = s1.y - s0.y;
+                        const float t = clamp((rx + ry * dy) / (1.0 + dy * dy), 0.0, 1.0);
+                        const float ex = rx - t;
+                        const float ey = ry - t * dy;
+                        d2_sec = min(d2_sec, ex * ex + ey * ey);
+                    }
+                    else
+                    {
+                        d2_sec = min(d2_sec, rx * rx + ry * ry);
+                    }
+                }
+            }
+            if (d2_prim < 1e29)
+            {
+                const float cov_p = clamp(card.primary_half_width + 0.5 - sqrt(d2_prim), 0.0, 1.0);
+                if (cov_p > 0.0) glass = mix(glass, card.primary_color.xyz, cov_p * card.primary_color.w);
+            }
+            if (d2_sec < 1e29)
+            {
+                const float cov_s = clamp(card.secondary_half_width + 0.5 - sqrt(d2_sec), 0.0, 1.0);
+                if (cov_s > 0.0) glass = mix(glass, card.secondary_color.xyz, cov_s * card.secondary_color.w);
+            }
+        }
+    }
+
+    // 7. Live endpoint dots (anywhere inside card, unclipped at plot_x1)
+    if (card.primary_dot.x >= 0.0 && card.primary_dot.y >= 0.0)
+    {
+        const float d = distance(p, card.primary_dot.xy);
+        if (card.primary_dot.w > 0.0 && d < card.primary_dot.w)
+        {
+            const float t = clamp(1.0 - d / card.primary_dot.w, 0.0, 1.0);
+            glass = mix(glass, card.primary_color.xyz, card.primary_glow_alpha * t * t);
+        }
+        const float core = clamp(card.primary_dot.z + 0.5 - d, 0.0, 1.0);
+        if (core > 0.0) glass = mix(glass, card.primary_color.xyz, core * card.primary_color.w);
+    }
+    if (card.secondary_dot.x >= 0.0 && card.secondary_dot.y >= 0.0)
+    {
+        const float d = distance(p, card.secondary_dot.xy);
+        if (card.secondary_dot.w > 0.0 && d < card.secondary_dot.w)
+        {
+            const float t = clamp(1.0 - d / card.secondary_dot.w, 0.0, 1.0);
+            glass = mix(glass, card.secondary_color.xyz, card.secondary_glow_alpha * t * t);
+        }
+        const float core = clamp(card.secondary_dot.z + 0.5 - d, 0.0, 1.0);
+        if (core > 0.0) glass = mix(glass, card.secondary_color.xyz, core * card.secondary_color.w);
+    }
+
+    // 8. Premultiplied RGBA8 typography & swatches overlay
+    if (rgba_overlay && params.box_width > 0u &&
+        x >= params.box_x && x < params.box_x + params.box_width &&
+        y >= params.box_y && y < params.box_y + params.box_height)
+    {
+        const uint px = text[(y - params.box_y) * params.box_width + (x - params.box_x)];
+        if (px != 0u)
+        {
+            const vec3 rgb_pm = vec3(float(px & 255u), float((px >> 8u) & 255u), float((px >> 16u) & 255u));
+            const float a = float((px >> 24u) & 255u) * (1.0 / 255.0);
+            glass = glass * (1.0 - a) + rgb_pm_to_yuv_delta(rgb_pm, bt709) + a * kBlack;
+        }
+    }
+
+    return mix(pix, glass, inside);
+}
+
 void main()
 {
     const uint block_x = gl_GlobalInvocationID.x;
     const uint block_y = gl_GlobalInvocationID.y;
     if (block_x >= params.row_words || block_y >= params.height / 2u) return;
+
+    const bool has_card = (params.flags & 1u) != 0u;
+    const bool rgba_overlay = (params.flags & 2u) != 0u;
+    const bool bt709 = (params.flags & 4u) != 0u;
 
     // the 8 pixels of the block, dimmed
     const uint chroma_word = base[(params.height + block_y) * params.row_words + block_x];
@@ -76,9 +376,15 @@ void main()
         }
     }
 
+    const uint bx0 = block_x * 4u;
+    const uint by0 = block_y * 2u;
+    const bool block_in_card = has_card &&
+        (bx0 + 4u > card.expand_rect.x) && (bx0 < card.expand_rect.z) &&
+        (by0 + 2u > card.expand_rect.y) && (by0 < card.expand_rect.w);
+
     const uint tile_count = params.tiles_x * params.tiles_y;
-    const uint tile = min(block_y * 2u / params.tile_size, params.tiles_y - 1u) * params.tiles_x
-                    + min(block_x * 4u / params.tile_size, params.tiles_x - 1u);
+    const uint tile = min(by0 / params.tile_size, params.tiles_y - 1u) * params.tiles_x
+                    + min(bx0 / params.tile_size, params.tiles_x - 1u);
     const uint last = tiles[tile + 1u];
     bool box_darkened = false;
     for (uint entry = tiles[tile]; ; ++entry)
@@ -91,19 +397,36 @@ void main()
             segment = segments[tiles[tile_count + 1u + entry]];
             above = segment.look.x < 0.0;
         }
-        // the text box is darkened before the first segment above it, or after the last segment
+        // legacy box darkened (or frosted card composited) before the first segment above it, or after the last segment
         if (!box_darkened && (above || !more))
         {
             box_darkened = true;
-            if (params.box_width > 0u)
+            if (has_card)
+            {
+                if (block_in_card)
+                {
+                    for (uint row = 0u; row < 2u; ++row)
+                    {
+                        const uint y = by0 + row;
+                        if (y < card.expand_rect.y || y >= card.expand_rect.w) continue;
+                        for (uint k = 0u; k < 4u; ++k)
+                        {
+                            const uint x = bx0 + k;
+                            if (x < card.expand_rect.x || x >= card.expand_rect.z) continue;
+                            color[row * 4u + k] = composite_card_pixel(color[row * 4u + k], x, y, rgba_overlay, bt709);
+                        }
+                    }
+                }
+            }
+            else if (params.box_width > 0u)
             {
                 for (uint row = 0u; row < 2u; ++row)
                 {
-                    const uint y = block_y * 2u + row;
+                    const uint y = by0 + row;
                     if (y < params.box_y || y >= params.box_y + params.box_height) continue;
                     for (uint k = 0u; k < 4u; ++k)
                     {
-                        const uint x = block_x * 4u + k;
+                        const uint x = bx0 + k;
                         if (x < params.box_x || x >= params.box_x + params.box_width) continue;
                         color[row * 4u + k] = kBlack + (color[row * 4u + k] - kBlack) * params.box_dim;
                     }
@@ -116,7 +439,7 @@ void main()
         {
             for (uint k = 0u; k < 4u; ++k)
             {
-                const vec2 p = vec2(float(block_x * 4u + k), float(block_y * 2u + row));
+                const vec2 p = vec2(float(bx0 + k), float(by0 + row));
                 // solid up to the radius, fading out over the next pixel (about what OpenCV's anti-aliased lines cover)
                 const float coverage = clamp(radius + 1.0 - distance_to(p, segment.ends), 0.0, 1.0);
                 color[row * 4u + k] = mix(color[row * 4u + k], segment.look.yzw, coverage);
@@ -124,18 +447,19 @@ void main()
         }
     }
 
-    if (params.box_width > 0u)
+    // legacy single-channel white text coverage
+    if (!has_card && params.box_width > 0u)
     {
         for (uint row = 0u; row < 2u; ++row)
         {
-            const uint y = block_y * 2u + row;
+            const uint y = by0 + row;
             if (y < params.box_y || y >= params.box_y + params.box_height) continue;
             for (uint k = 0u; k < 4u; ++k)
             {
-                const uint x = block_x * 4u + k;
+                const uint x = bx0 + k;
                 if (x < params.box_x || x >= params.box_x + params.box_width) continue;
                 const uint index = (y - params.box_y) * params.text_row_words * 4u + (x - params.box_x);
-                const float coverage = float(byte_of(text[index >> 2], index & 3u)) / 255.0;
+                const float coverage = float(byte_of(text[index >> 2u], index & 3u)) / 255.0;
                 color[row * 4u + k] = mix(color[row * 4u + k], kWhite, coverage);
             }
         }
@@ -145,7 +469,7 @@ void main()
     {
         uint word = 0u;
         for (uint k = 0u; k < 4u; ++k) word |= uint(clamp(color[row * 4u + k].x + 0.5, 0.0, 255.0)) << (8u * k);
-        result[(block_y * 2u + row) * params.row_words + block_x] = word;
+        result[(by0 + row) * params.row_words + block_x] = word;
     }
     uint word = 0u;
     for (uint pair = 0u; pair < 2u; ++pair)

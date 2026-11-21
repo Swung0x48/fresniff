@@ -36,7 +36,7 @@ if(NOT TRDROP_GLSLC)
     message(FATAL_ERROR "glslc not found in ${ANDROID_NDK}/shader-tools/${ANDROID_HOST_TAG}")
 endif()
 set(_shaders "")
-foreach(_name yuv_diff motion_pyramid motion_lk motion_select motion_texture overlay_base overlay_draw ahb_import nv12_to_rgba)
+foreach(_name yuv_diff motion_pyramid motion_lk motion_select motion_texture overlay_base overlay_blur overlay_draw ahb_import nv12_to_rgba)
     set(_src "${TRDROP_ROOT}/src/vulkan/${_name}.comp")
     set(_inc "${_shader_dir}/${_name}.spv.inc")
     add_custom_command(
@@ -61,6 +61,8 @@ add_library(trdrop SHARED
     ${TRDROP_ROOT}/src/clock_skew.cpp
     ${TRDROP_ROOT}/src/motion.cpp
     ${TRDROP_ROOT}/src/motion_video.cpp
+    ${TRDROP_ROOT}/src/osd_font.cpp
+    ${TRDROP_ROOT}/src/osd_font_data.cpp
     ${TRDROP_ROOT}/src/resolution.cpp
     ${TRDROP_ROOT}/src/resolution_video.cpp
     ${TRDROP_ROOT}/src/video_writer.cpp
@@ -69,7 +71,7 @@ add_library(trdrop SHARED
     ${TRDROP_ROOT}/src/ffmpeg/ffmpeg_writer.cpp
     ${TRDROP_ROOT}/src/ffmpeg/yuv_picture.cpp
 )
-target_include_directories(trdrop PRIVATE ${TRDROP_ROOT}/src ${OpenCV_INCLUDE_DIRS} "${_shader_dir}")
+target_include_directories(trdrop PRIVATE ${TRDROP_ROOT}/src ${TRDROP_ROOT}/third_party ${OpenCV_INCLUDE_DIRS} "${_shader_dir}")
 target_compile_definitions(trdrop PRIVATE TRDROP_LIBRARY=1 USE_FFMPEG=1 TRDROP_MEDIACODEC_VULKAN=1)
 target_compile_options(trdrop PRIVATE -Wall -Wextra -Wno-missing-field-initializers)
 # the OpenCV of the SDK as one shared library (libopencv_java4.so), FFmpeg as shared libraries

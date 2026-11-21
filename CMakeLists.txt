@@ -53,11 +53,13 @@ add_executable(trdrop-pp
     src/clock_skew.cpp
     src/motion.cpp
     src/motion_video.cpp
+    src/osd_font.cpp
+    src/osd_font_data.cpp
     src/resolution.cpp
     src/resolution_video.cpp
     src/video_writer.cpp
 )
-target_include_directories(trdrop-pp PRIVATE src)
+target_include_directories(trdrop-pp PRIVATE src third_party)
 target_link_libraries(trdrop-pp PRIVATE ${OpenCV_LIBS})
 trdrop_warnings(trdrop-pp)
 if(MSVC)
@@ -138,13 +140,14 @@ if(USE_FFMPEG)
         trdrop_shader(motion_select _select_shader_inc)
         trdrop_shader(motion_texture _texture_shader_inc)
         trdrop_shader(overlay_base _overlay_base_shader_inc)
+        trdrop_shader(overlay_blur _overlay_blur_shader_inc)
         trdrop_shader(overlay_draw _overlay_draw_shader_inc)
         trdrop_shader(resolution_lattice _resolution_lattice_shader_inc)
         trdrop_shader(resolution_edge _resolution_edge_shader_inc)
         trdrop_shader(resolution_stairs _resolution_stairs_shader_inc)
         target_sources(trdrop-pp PRIVATE src/vulkan/vk_video_pipeline.cpp "${_yuv_shader_inc}" "${_pyramid_shader_inc}" "${_lk_shader_inc}"
                                          "${_select_shader_inc}" "${_texture_shader_inc}"
-                                         "${_overlay_base_shader_inc}" "${_overlay_draw_shader_inc}"
+                                         "${_overlay_base_shader_inc}" "${_overlay_blur_shader_inc}" "${_overlay_draw_shader_inc}"
                                          "${_resolution_lattice_shader_inc}" "${_resolution_edge_shader_inc}"
                                          "${_resolution_stairs_shader_inc}" src/gpu_memory.cpp)
         if(WIN32)
@@ -262,6 +265,7 @@ install(DIRECTORY skills/ DESTINATION "${TRDROP_INSTALL_SKILLDIR}")
 install(FILES README.md DESTINATION "${TRDROP_INSTALL_DOCDIR}")
 install(FILES docs/icon.svg docs/motion-video.jpg docs/resolution-video.jpg DESTINATION "${TRDROP_INSTALL_DOCDIR}/docs")
 install(FILES LICENSE DESTINATION "${TRDROP_INSTALL_LICENSEDIR}" RENAME trdrop++-LICENSE.txt)
+install(FILES licenses/LeagueSpartan-OFL.txt licenses/stb-LICENSE.txt DESTINATION "${TRDROP_INSTALL_LICENSEDIR}")
 
 # ---- package: the installed folder as an archive
 #   cmake --build <build dir> --target package
