@@ -88,21 +88,30 @@ motion (smoothness of the animation, needs coherent motion like a moving camera)
       --motion-window <ms>     the motion of a frame is compared to the average motion in
                                this window around it (default: 400, growing up to 1000 until
                                it holds 10 new frames)
-      --motion-video <file>    --motion, and write a copy of the video with the motion drawn
-                               on it: an arrow per tracked point (colored by its length; they
-                               stay, dimmed, on duplicate frames), a red x where a match was
-                               rejected, and the values of the frame. At the resolution the
-                               motion is measured at (up to 1920x1080, or 1080x1920 for a
-                               video higher than wide), H.264 in the container
-                               the name asks for (.mp4, .mkv, .mov). One file per input video,
-                               comma separated. With Vulkan Video decoding it is drawn and
-                               encoded on the GPU, otherwise on the CPU
+      --motion-video <file>    --motion, and write a copy of the video with a frosted-glass
+                               framerate and perceived smoothness overlay and 10 s chart at
+                               the bottom. At the resolution the motion is measured at (up
+                               to 1920x1080, or 1080x1920 for a video higher than wide),
+                               H.264 in the container the name asks for (.mp4, .mkv, .mov).
+                               One file per input video, comma separated. With Vulkan Video
+                               decoding it is drawn and encoded on the GPU, otherwise on
+                               the CPU
       --motion-video-native    the motion video at the resolution of the input video (4K
                                stays 4K) instead of the motion's; the analysis is the same.
                                Larger files, more memory for the pictures that wait; not
                                together with --resolution-video
-      --arrow-scale <x>        draw the arrows of the motion video x times longer (default: 1,
-                               the real motion; e.g. 8 for slow motion)
+      --osd <detailed|glass>   motion video overlay style (default: glass):
+                                 glass     frosted-glass bottom card with framerate,
+                                           perceived smoothness and smooth 10 s chart
+                                 detailed  legacy top-left telemetry box, 10 s chart and
+                                           optical-flow arrows over a dimmed picture
+      --motion-arrows          draw optical-flow arrows (colored by length; dimmed on
+                               duplicate frames) and red x rejected matches on the motion
+                               video in glass mode (slightly dimming the picture; always
+                               enabled in detailed mode, off by default in glass mode)
+      --arrow-scale <x>        draw the arrows of the motion video x times longer (enables
+                               arrows in glass mode; default: 1, the real motion; e.g. 8
+                               for slow motion)
       --async-capture          --motion for a capture that didn't run in step with the game's
                                output (variable refresh rate, or a capture program with its
                                own clock): a picture may be recorded an interval late, which
@@ -352,6 +361,15 @@ bool parse_arguments(int argc, char ** argv, Options & options)
         }
         else if (arg == "--motion-video") { options.motion = true; options.motion_videos = split(next(), ','); }
         else if (arg == "--motion-video-native") { options.motion_video_native = true; }
+        else if (arg == "--osd")
+        {
+            options.osd = next();
+            if (options.osd != "glass" && options.osd != "detailed")
+            {
+                throw std::invalid_argument("--osd expects detailed or glass");
+            }
+        }
+        else if (arg == "--motion-arrows") { options.motion_arrows = true; }
         else if (arg == "--resolution-data")
         {
             options.motion = true;
@@ -367,6 +385,7 @@ bool parse_arguments(int argc, char ** argv, Options & options)
         else if (arg == "--arrow-scale")
         {
             options.arrow_scale = parse_double(next(), arg);
+            options.motion_arrows = true;
             if (options.arrow_scale < 0.1 || options.arrow_scale > 100.0) throw std::invalid_argument("--arrow-scale must be between 0.1 and 100");
         }
         else if (arg == "--motion-window")
@@ -1138,9 +1157,10 @@ int run(const Options & options, std::vector<std::vector<StoredValues>> * export
         auto take_target = [&]() { return targets.empty() ? nullptr : std::move(targets[next_target++]); };
         if (!motion_path.empty())
         {
+            const MotionOsdStyle osd_style = (options.osd == "detailed") ? MotionOsdStyle::Detailed : MotionOsdStyle::Glass;
             motion_videos[i] = std::make_unique<MotionVideo>(motion_path, sources.frame_width(i), sources.frame_height(i)
                                                            , recorded_framerates[i], options.arrow_scale, take_target()
-                                                           , options.motion_video_native);
+                                                           , options.motion_video_native, osd_style, options.motion_arrows);
             if (!options.quiet)
             {
                 std::fprintf(stderr, "v%zu motion video: %s (%dx%d, %s)\n", i + 1, motion_videos[i]->path().c_str()

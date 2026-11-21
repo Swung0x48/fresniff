@@ -72,6 +72,9 @@ const uint32_t kMotionTextureSpirv[] = {
 const uint32_t kOverlayBaseSpirv[] = {
 #include "overlay_base.spv.inc"
 };
+const uint32_t kOverlayBlurSpirv[] = {
+#include "overlay_blur.spv.inc"
+};
 const uint32_t kOverlayDrawSpirv[] = {
 #include "overlay_draw.spv.inc"
 };
@@ -139,7 +142,8 @@ public:
             _select = _create_compute(kMotionSelectSpirv, sizeof(kMotionSelectSpirv), 3, sizeof(SelectPush), VK_NULL_HANDLE);
             _texture = _create_compute(kMotionTextureSpirv, sizeof(kMotionTextureSpirv), 4, sizeof(TexturePush), VK_NULL_HANDLE);
             _overlay_base = _create_compute(kOverlayBaseSpirv, sizeof(kOverlayBaseSpirv), 3, sizeof(OverlayBasePush), VK_NULL_HANDLE);
-            _overlay_draw = _create_compute(kOverlayDrawSpirv, sizeof(kOverlayDrawSpirv), 5, sizeof(OverlayDrawPush), VK_NULL_HANDLE);
+            _overlay_blur = _create_compute(kOverlayBlurSpirv, sizeof(kOverlayBlurSpirv), 3, sizeof(OverlayBlurPush), VK_NULL_HANDLE);
+            _overlay_draw = _create_compute(kOverlayDrawSpirv, sizeof(kOverlayDrawSpirv), 7, sizeof(OverlayDrawPush), VK_NULL_HANDLE);
             _rgba = _create_compute(kNv12ToRgbaSpirv, sizeof(kNv12ToRgbaSpirv), 2, sizeof(RgbaPush), VK_NULL_HANDLE);
             _create_slots();
             for (size_t i = 0; i < paths.size(); ++i) _open_video(_videos[i], paths[i]);
@@ -354,9 +358,17 @@ private:
         Buffer segments;
         Buffer tiles;
         Buffer text;
+        Buffer card_data;
+        Buffer blur_a;
+        Buffer blur_b;
         Buffer drawn;
         Buffer rgba;
+        uint64_t overlay_key = UINT64_MAX;
+        uint64_t overlay_generation = 0;
+        size_t overlay_bytes = 0;
         VkDescriptorSet draw_set = VK_NULL_HANDLE;
+        VkDescriptorSet blur_set_a = VK_NULL_HANDLE;
+        VkDescriptorSet blur_set_b = VK_NULL_HANDLE;
         VkDescriptorSet rgba_set = VK_NULL_HANDLE;
     };
 
@@ -546,13 +558,13 @@ private:
         // sparse motion (what the grid found, the texture) and the picture; per picture being drawn: the drawing
         // and the conversion
         const VkDescriptorPoolSize sizes[2] = {
-            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, (2 + 5 + 2 + 4 + 3 + 4 + 3) * frames + (5 + 2) * draws },
+            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, (2 + 5 + 2 + 4 + 3 + 4 + 3) * frames + (7 + 3 + 3 + 2) * draws },
             // an image with several planes may count as several descriptors
             { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4 * frames },
         };
         VkDescriptorPoolCreateInfo pool_info { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
         pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-        pool_info.maxSets = 7 * frames + 2 * draws;
+        pool_info.maxSets = 7 * frames + 4 * draws;
         pool_info.poolSizeCount = 2;
         pool_info.pPoolSizes = sizes;
         check(vkCreateDescriptorPool(_device, &pool_info, nullptr, &_descriptor_pool), "vkCreateDescriptorPool");
@@ -581,6 +593,8 @@ private:
             check(vkCreateSemaphore(_device, &semaphore_info, nullptr, &slot.acquired), "vkCreateSemaphore");
             check(vkCreateSemaphore(_device, &semaphore_info, nullptr, &slot.rendered), "vkCreateSemaphore");
             slot.draw_set = _allocate_set(_overlay_draw);
+            slot.blur_set_a = _allocate_set(_overlay_blur);
+            slot.blur_set_b = _allocate_set(_overlay_blur);
             slot.rgba_set = _allocate_set(_rgba);
         }
     }
@@ -1366,12 +1380,51 @@ private:
         };
         upload(slot.segments, _overlay_upload.segments.data(), _overlay_upload.segments.size() * sizeof(float));
         upload(slot.tiles, _overlay_upload.tiles.data(), _overlay_upload.tiles.size() * sizeof(uint32_t));
-        upload(slot.text, _overlay_upload.text.data(), _overlay_upload.text.size());
+        const uint64_t overlay_key = static_cast<uint64_t>(&video - _videos.data());
+        if (_overlay_upload.rgba_overlay)
+        {
+            const size_t bytes = _overlay_upload.overlay_bytes;
+            const bool unchanged = slot.overlay_key == overlay_key
+                                && slot.overlay_generation == _overlay_upload.overlay_generation
+                                && slot.overlay_bytes == bytes
+                                && _overlay_upload.overlay_generation != 0
+                                && slot.text.size >= bytes;
+            if (!unchanged)
+            {
+                _ensure_buffer(slot.text, std::max<size_t>(bytes, 64), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, true);
+                if (bytes > 0) copy_rgba_overlay(scene.overlay, slot.text.mapped);
+                slot.overlay_key = overlay_key;
+                slot.overlay_generation = _overlay_upload.overlay_generation;
+                slot.overlay_bytes = bytes;
+            }
+        }
+        else
+        {
+            upload(slot.text, _overlay_upload.text.data(), _overlay_upload.text.size());
+            slot.overlay_key = UINT64_MAX;
+            slot.overlay_generation = 0;
+            slot.overlay_bytes = 0;
+        }
+        upload(slot.card_data, _overlay_upload.card_data.data(), _overlay_upload.card_data.size());
+        const VkDeviceSize blur_bytes = _overlay_upload.card_enabled
+            ? std::max<VkDeviceSize>(static_cast<VkDeviceSize>(_overlay_upload.blur.blur_w) * static_cast<VkDeviceSize>(_overlay_upload.blur.blur_h) * 4 * sizeof(float), 64)
+            : 64;
+        _ensure_buffer(slot.blur_a, blur_bytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, false);
+        if (_overlay_upload.card_enabled)
+        {
+            _ensure_buffer(slot.blur_b, blur_bytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, false);
+        }
         _ensure_buffer(slot.drawn, encoder.picture_bytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, false);
         _ensure_buffer(slot.rgba, static_cast<VkDeviceSize>(encoder.width) * encoder.height * 4,
                        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, false);
-        _write_set(slot.draw_set, 0, { encoder.pictures[static_cast<size_t>(picture)].buffer, slot.segments.buffer, slot.tiles.buffer,
-                                       slot.text.buffer, slot.drawn.buffer });
+        const VkBuffer picture_buffer = encoder.pictures[static_cast<size_t>(picture)].buffer;
+        _write_set(slot.draw_set, 0, { picture_buffer, slot.segments.buffer, slot.tiles.buffer,
+                                       slot.text.buffer, slot.drawn.buffer, slot.blur_a.buffer, slot.card_data.buffer });
+        if (_overlay_upload.card_enabled)
+        {
+            _write_set(slot.blur_set_a, 0, { picture_buffer, slot.blur_b.buffer, slot.blur_a.buffer });
+            _write_set(slot.blur_set_b, 0, { picture_buffer, slot.blur_a.buffer, slot.blur_b.buffer });
+        }
         _write_set(slot.rgba_set, 0, { slot.drawn.buffer, slot.rgba.buffer });
 
         uint32_t image_index = 0;
@@ -1389,6 +1442,28 @@ private:
         check(vkBeginCommandBuffer(command_buffer, &begin), "vkBeginCommandBuffer");
         // the picture was written by the submission of its frame
         _barrier(command_buffer);
+        if (_overlay_upload.card_enabled)
+        {
+            const uint32_t blur_gx = (_overlay_upload.blur.blur_w + 7u) / 8u;
+            const uint32_t blur_gy = (_overlay_upload.blur.blur_h + 7u) / 8u;
+            OverlayBlurPush blur_push = _overlay_upload.blur;
+            vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, _overlay_blur.pipeline);
+            blur_push.pass = 0u;
+            vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, _overlay_blur.layout, 0, 1, &slot.blur_set_a, 0, nullptr);
+            vkCmdPushConstants(command_buffer, _overlay_blur.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(blur_push), &blur_push);
+            vkCmdDispatch(command_buffer, blur_gx, blur_gy, 1);
+            _barrier(command_buffer);
+            blur_push.pass = 1u;
+            vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, _overlay_blur.layout, 0, 1, &slot.blur_set_b, 0, nullptr);
+            vkCmdPushConstants(command_buffer, _overlay_blur.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(blur_push), &blur_push);
+            vkCmdDispatch(command_buffer, blur_gx, blur_gy, 1);
+            _barrier(command_buffer);
+            blur_push.pass = 2u;
+            vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, _overlay_blur.layout, 0, 1, &slot.blur_set_a, 0, nullptr);
+            vkCmdPushConstants(command_buffer, _overlay_blur.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(blur_push), &blur_push);
+            vkCmdDispatch(command_buffer, blur_gx, blur_gy, 1);
+            _barrier(command_buffer);
+        }
         vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, _overlay_draw.pipeline);
         vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, _overlay_draw.layout, 0, 1, &slot.draw_set, 0, nullptr);
         vkCmdPushConstants(command_buffer, _overlay_draw.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(OverlayDrawPush), &_overlay_upload.push);
@@ -1553,7 +1628,7 @@ private:
         for (DrawSlot & slot : _draw_slots)
         {
             if (!_device) continue;
-            for (Buffer * buffer : { &slot.segments, &slot.tiles, &slot.text, &slot.drawn, &slot.rgba }) _destroy_buffer(*buffer);
+            for (Buffer * buffer : { &slot.segments, &slot.tiles, &slot.text, &slot.card_data, &slot.blur_a, &slot.blur_b, &slot.drawn, &slot.rgba }) _destroy_buffer(*buffer);
             if (slot.fence) vkDestroyFence(_device, slot.fence, nullptr);
             if (slot.acquired) vkDestroySemaphore(_device, slot.acquired, nullptr);
             if (slot.rendered) vkDestroySemaphore(_device, slot.rendered, nullptr);
@@ -1583,7 +1658,7 @@ private:
         }
         if (_device)
         {
-            for (Compute * compute : { &_diff, &_pyramid, &_lk, &_select, &_texture, &_overlay_base, &_overlay_draw, &_rgba }) _destroy_compute(*compute);
+            for (Compute * compute : { &_diff, &_pyramid, &_lk, &_select, &_texture, &_overlay_base, &_overlay_blur, &_overlay_draw, &_rgba }) _destroy_compute(*compute);
             if (_descriptor_pool) vkDestroyDescriptorPool(_device, _descriptor_pool, nullptr);
             if (_profile_fence) vkDestroyFence(_device, _profile_fence, nullptr);
             if (_command_pool) vkDestroyCommandPool(_device, _command_pool, nullptr);
@@ -1616,6 +1691,7 @@ private:
     Compute _select;
     Compute _texture;
     Compute _overlay_base;
+    Compute _overlay_blur;
     Compute _overlay_draw;
     Compute _rgba;
 
