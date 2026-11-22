@@ -115,6 +115,7 @@ Probe probe(const std::string & path)
             const AVCodecHWConfig * config = avcodec_get_hw_config(decoder, i);
             if (!config) break;
             if (config->device_type == AV_HWDEVICE_TYPE_VULKAN && (config->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX)) result.vulkan = true;
+            if (config->device_type == AV_HWDEVICE_TYPE_VIDEOTOOLBOX && (config->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX)) result.videotoolbox = true;
         }
     }
     avformat_close_input(&format);
@@ -163,7 +164,9 @@ VideoDecoder::VideoDecoder(const std::string & path, AVBufferRef * hw_device, in
         if (hw_device)
         {
             const AVHWDeviceType type = reinterpret_cast<const AVHWDeviceContext *>(hw_device->data)->type;
-            _hw_format = type == AV_HWDEVICE_TYPE_MEDIACODEC ? AV_PIX_FMT_MEDIACODEC : AV_PIX_FMT_VULKAN;
+            _hw_format = type == AV_HWDEVICE_TYPE_MEDIACODEC ? AV_PIX_FMT_MEDIACODEC
+                       : type == AV_HWDEVICE_TYPE_VIDEOTOOLBOX ? AV_PIX_FMT_VIDEOTOOLBOX
+                       : AV_PIX_FMT_VULKAN;
         }
         auto open = [&](const AVCodec * codec, AVDictionary ** codec_options) {
             _codec = avcodec_alloc_context3(codec);

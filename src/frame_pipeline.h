@@ -98,7 +98,13 @@ DecoderChoice choose_decoder(const std::vector<std::string> & paths, bool vulkan
 std::unique_ptr<FramePipeline> make_mediacodec_vulkan_pipeline(const std::vector<std::string> & paths);
 #endif
 
-#if defined(USE_FFMPEG) && defined(USE_VULKAN)
+#ifdef FRESNIFF_MACOS_VULKAN
+//! macOS: FFmpeg (VideoToolbox or CPU) decoding, analysis and motion video on the GPU with MoltenVK.
+//! throws std::runtime_error if an input has no 8-bit YUV format or Vulkan is unavailable
+std::unique_ptr<FramePipeline> make_macos_vulkan_pipeline(const std::vector<std::string> & paths, int device_index);
+#endif
+
+#if defined(USE_FFMPEG) && defined(USE_VULKAN) && !defined(FRESNIFF_MACOS_VULKAN)
 //! FFmpeg Vulkan Video decoding, the Y, U and V planes stay on the GPU and are compared there.
 //! throws std::runtime_error if Vulkan decoding isn't available for an input
 std::unique_ptr<FramePipeline> make_vulkan_video_pipeline(const std::vector<std::string> & paths, int device_index);

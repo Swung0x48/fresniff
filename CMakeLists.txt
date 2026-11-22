@@ -72,7 +72,7 @@ if(USE_VULKAN)
     # the Vulkan loader is loaded at runtime (the program falls back to the CPU without it)
     find_package(Vulkan REQUIRED)
     if(NOT Vulkan_GLSLC_EXECUTABLE)
-        find_program(Vulkan_GLSLC_EXECUTABLE NAMES glslc HINTS "$ENV{VULKAN_SDK}/bin" "$ENV{VULKAN_SDK}/Bin")
+        find_program(Vulkan_GLSLC_EXECUTABLE NAMES glslc HINTS "$ENV{VULKAN_SDK}/bin" "$ENV{VULKAN_SDK}/Bin" "/opt/homebrew/bin" "/usr/local/bin")
     endif()
     if(NOT Vulkan_GLSLC_EXECUTABLE)
         message(FATAL_ERROR "USE_VULKAN: glslc not found (install the Vulkan SDK or set Vulkan_GLSLC_EXECUTABLE)")
@@ -97,6 +97,18 @@ if(USE_VULKAN)
     target_sources(fresniff PRIVATE src/vulkan/vk_diff_engine.cpp "${_shader_inc}")
     target_include_directories(fresniff PRIVATE "${_shader_dir}")
     target_compile_definitions(fresniff PRIVATE USE_VULKAN=1)
+    if(APPLE)
+        set(_vk_lib_path "")
+        if(Vulkan_LIBRARY)
+            set(_vk_lib_path "${Vulkan_LIBRARY}")
+        elseif(TARGET Vulkan::Vulkan)
+            get_target_property(_vk_lib_path Vulkan::Vulkan IMPORTED_LOCATION)
+        endif()
+        if(_vk_lib_path)
+            get_filename_component(_vk_lib_dir "${_vk_lib_path}" DIRECTORY)
+            target_compile_definitions(fresniff PRIVATE FRESNIFF_VULKAN_LIB_DIR="${_vk_lib_dir}")
+        endif()
+    endif()
     if(TARGET Vulkan::Headers)
         target_link_libraries(fresniff PRIVATE Vulkan::Headers)
     else()
@@ -145,16 +157,27 @@ if(USE_FFMPEG)
         fresniff_shader(resolution_lattice _resolution_lattice_shader_inc)
         fresniff_shader(resolution_edge _resolution_edge_shader_inc)
         fresniff_shader(resolution_stairs _resolution_stairs_shader_inc)
-        target_sources(fresniff PRIVATE src/vulkan/vk_video_pipeline.cpp "${_yuv_shader_inc}" "${_pyramid_shader_inc}" "${_lk_shader_inc}"
-                                         "${_select_shader_inc}" "${_texture_shader_inc}"
-                                         "${_overlay_base_shader_inc}" "${_overlay_blur_shader_inc}" "${_overlay_draw_shader_inc}"
-                                         "${_resolution_lattice_shader_inc}" "${_resolution_edge_shader_inc}"
-                                         "${_resolution_stairs_shader_inc}" src/gpu_memory.cpp)
-        if(WIN32)
-            # the video memory all programs use (performance counters), see gpu_memory.h
-            target_link_libraries(fresniff PRIVATE pdh)
+        if(APPLE)
+            target_sources(fresniff PRIVATE src/vulkan/vk_macos_pipeline.cpp "${_yuv_shader_inc}" "${_pyramid_shader_inc}" "${_lk_shader_inc}"
+                                             "${_select_shader_inc}" "${_texture_shader_inc}"
+                                             "${_overlay_base_shader_inc}" "${_overlay_blur_shader_inc}" "${_overlay_draw_shader_inc}"
+                                             "${_resolution_lattice_shader_inc}" "${_resolution_edge_shader_inc}"
+                                             "${_resolution_stairs_shader_inc}")
+            target_compile_definitions(fresniff PRIVATE FRESNIFF_MACOS_VULKAN=1)
+            target_link_libraries(fresniff PRIVATE "-framework CoreVideo")
+            message(STATUS "fresniff: FFmpeg + VideoToolbox decoding enabled (with MoltenVK GPU analysis)")
+        else()
+            target_sources(fresniff PRIVATE src/vulkan/vk_video_pipeline.cpp "${_yuv_shader_inc}" "${_pyramid_shader_inc}" "${_lk_shader_inc}"
+                                             "${_select_shader_inc}" "${_texture_shader_inc}"
+                                             "${_overlay_base_shader_inc}" "${_overlay_blur_shader_inc}" "${_overlay_draw_shader_inc}"
+                                             "${_resolution_lattice_shader_inc}" "${_resolution_edge_shader_inc}"
+                                             "${_resolution_stairs_shader_inc}" src/gpu_memory.cpp)
+            if(WIN32)
+                # the video memory all programs use (performance counters), see gpu_memory.h
+                target_link_libraries(fresniff PRIVATE pdh)
+            endif()
+            message(STATUS "fresniff: FFmpeg decoding enabled (with Vulkan Video)")
         endif()
-        message(STATUS "fresniff: FFmpeg decoding enabled (with Vulkan Video)")
     else()
         message(STATUS "fresniff: FFmpeg decoding enabled (CPU only, Vulkan Video needs USE_VULKAN)")
     endif()

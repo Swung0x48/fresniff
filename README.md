@@ -265,6 +265,14 @@ cmake -S . -B build                                                       # Linu
 cmake --build build
 ```
 
+On macOS with Homebrew and MoltenVK (GPU compute + VideoToolbox hardware decoding/encoding):
+
+```
+brew install cmake ninja pkgconf opencv ffmpeg vulkan-headers vulkan-loader molten-vk shaderc
+cmake -S . -B build -G Ninja -DUSE_VULKAN=ON -DUSE_FFMPEG=ON
+cmake --build build
+```
+
 On Windows build from a Visual Studio developer prompt; the OpenCV DLLs are copied next to the program.
 
 ### Installing / packaging

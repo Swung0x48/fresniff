@@ -37,35 +37,51 @@ const char * const kEncoders[] = {
 //! bits per pixel and frame, at 60 fps (1920x1080: 8.7 Mbit/s); arrows and text need more than the picture
 constexpr double kBitsPerPixel = 0.07;
 
-//! the format an encoder is fed with: planar 4:2:0 if it takes it, otherwise NV12
-AVPixelFormat memory_format(const AVCodec * codec)
+//! the format an encoder is fed with: planar 4:2:0 or NV12 depending on `prefer_nv12`
+AVPixelFormat memory_format(const AVCodec * codec, bool prefer_nv12)
 {
     const void * configs = nullptr;
     int count = 0;
     if (avcodec_get_supported_config(nullptr, codec, AV_CODEC_CONFIG_PIX_FORMAT, 0, &configs, &count) < 0) return AV_PIX_FMT_NONE;
-    if (!configs) return AV_PIX_FMT_YUV420P; // any format
+    if (!configs) return prefer_nv12 ? AV_PIX_FMT_NV12 : AV_PIX_FMT_YUV420P; // any format
     const AVPixelFormat * formats = static_cast<const AVPixelFormat *>(configs);
+    bool yuv420p = false;
     bool nv12 = false;
     for (int i = 0; i < count; ++i)
     {
-        if (formats[i] == AV_PIX_FMT_YUV420P) return AV_PIX_FMT_YUV420P;
-        nv12 |= formats[i] == AV_PIX_FMT_NV12;
+        if (formats[i] == AV_PIX_FMT_YUV420P) yuv420p = true;
+        if (formats[i] == AV_PIX_FMT_NV12) nv12 = true;
     }
-    return nv12 ? AV_PIX_FMT_NV12 : AV_PIX_FMT_NONE;
+    if (prefer_nv12) return nv12 ? AV_PIX_FMT_NV12 : (yuv420p ? AV_PIX_FMT_YUV420P : AV_PIX_FMT_NONE);
+    return yuv420p ? AV_PIX_FMT_YUV420P : (nv12 ? AV_PIX_FMT_NV12 : AV_PIX_FMT_NONE);
 }
 
 } // namespace
 
 EncodedVideo::EncodedVideo(const std::string & path, int width, int height, double fps)
-    : EncodedVideo(path, width, height, fps, nullptr, nullptr)
+    : EncodedVideo(path, width, height, fps, false, {})
 { }
+
+EncodedVideo::EncodedVideo(const std::string & path, int width, int height, double fps, bool prefer_nv12, const VideoColorInfo & color)
+    : _path(path)
+{
+    try
+    {
+        _open(width, height, fps, nullptr, nullptr, prefer_nv12, color);
+    }
+    catch (...)
+    {
+        _release();
+        throw;
+    }
+}
 
 EncodedVideo::EncodedVideo(const std::string & path, int width, int height, double fps, const char * encoder, AVBufferRef * hw_frames)
     : _path(path)
 {
     try
     {
-        _open(width, height, fps, encoder, hw_frames);
+        _open(width, height, fps, encoder, hw_frames, false, {});
     }
     catch (...)
     {
@@ -81,7 +97,7 @@ void EncodedVideo::_check(int result, const char * what) const
     if (result < 0) throw std::runtime_error("writing '" + _path + "' failed (" + what + ": " + error_string(result) + ")");
 }
 
-void EncodedVideo::_open(int width, int height, double fps, const char * encoder, AVBufferRef * hw_frames)
+void EncodedVideo::_open(int width, int height, double fps, const char * encoder, AVBufferRef * hw_frames, bool prefer_nv12, const VideoColorInfo & color)
 {
     if (avformat_alloc_output_context2(&_format, nullptr, nullptr, _path.c_str()) < 0 || !_format)
     {
@@ -106,7 +122,7 @@ void EncodedVideo::_open(int width, int height, double fps, const char * encoder
         const char * name = names[n];
         const AVCodec * codec = avcodec_find_encoder_by_name(name);
         if (!codec || avformat_query_codec(_format->oformat, codec->id, FF_COMPLIANCE_NORMAL) != 1) continue;
-        const AVPixelFormat format = hw_frames ? reinterpret_cast<const AVHWFramesContext *>(hw_frames->data)->format : memory_format(codec);
+        const AVPixelFormat format = hw_frames ? reinterpret_cast<const AVHWFramesContext *>(hw_frames->data)->format : memory_format(codec, prefer_nv12);
         if (format == AV_PIX_FMT_NONE) continue;
         AVCodecContext * context = avcodec_alloc_context3(codec);
         if (!context) throw std::runtime_error("out of memory");
@@ -119,6 +135,10 @@ void EncodedVideo::_open(int width, int height, double fps, const char * encoder
         context->gop_size = std::max(1, static_cast<int>(std::lround(fps)));
         context->max_b_frames = 0;
         context->bit_rate = static_cast<int64_t>(kBitsPerPixel * width * height * 60.0 * std::sqrt(std::max(1.0, fps) / 60.0));
+        if (color.colorspace != AVCOL_SPC_UNSPECIFIED) context->colorspace = color.colorspace;
+        if (color.primaries != AVCOL_PRI_UNSPECIFIED) context->color_primaries = color.primaries;
+        if (color.trc != AVCOL_TRC_UNSPECIFIED) context->color_trc = color.trc;
+        if (color.range != AVCOL_RANGE_UNSPECIFIED) context->color_range = color.range;
         if (_format->oformat->flags & AVFMT_GLOBALHEADER) context->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
         if (hw_frames)
         {

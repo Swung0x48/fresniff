@@ -12,27 +12,19 @@
 #define VK_NO_PROTOTYPES
 #include <vulkan/vulkan.h>
 
+#include "vulkan/vk_loader.h"
+
 #include <algorithm>
 #include <array>
 #include <initializer_list>
 #include <cstdlib>
 #include <cstring>
-#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include <opencv2/imgproc.hpp>
-
-#ifdef _WIN32
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#include <windows.h>
-#else
-#include <dlfcn.h>
-#endif
 
 namespace fresniff {
 
@@ -64,6 +56,7 @@ struct PushConstants {
     X(vkGetPhysicalDeviceProperties) \
     X(vkGetPhysicalDeviceQueueFamilyProperties) \
     X(vkGetPhysicalDeviceMemoryProperties) \
+    X(vkEnumerateDeviceExtensionProperties) \
     X(vkCreateDevice) \
     X(vkGetDeviceProcAddr)
 
@@ -111,58 +104,8 @@ struct PushConstants {
 
 #define FRESNIFF_VK_DECLARE(name) PFN_##name name = nullptr;
 
-struct GlobalFunctions {
-    PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr = nullptr;
-    PFN_vkCreateInstance vkCreateInstance = nullptr;
-    PFN_vkEnumerateInstanceLayerProperties vkEnumerateInstanceLayerProperties = nullptr;
-};
-
 struct InstanceFunctions { FRESNIFF_VK_INSTANCE_FUNCTIONS(FRESNIFF_VK_DECLARE) };
 struct DeviceFunctions { FRESNIFF_VK_DEVICE_FUNCTIONS(FRESNIFF_VK_DECLARE) };
-
-//! loads the Vulkan loader library once, throws if it is not installed
-const GlobalFunctions & global_functions()
-{
-    static GlobalFunctions functions;
-    static std::string error;
-    static std::once_flag once;
-    std::call_once(once, [] {
-        PFN_vkGetInstanceProcAddr get_instance_proc_addr = nullptr;
-#ifdef _WIN32
-        HMODULE library = LoadLibraryA("vulkan-1.dll");
-        if (library) get_instance_proc_addr = reinterpret_cast<PFN_vkGetInstanceProcAddr>(
-            reinterpret_cast<void *>(GetProcAddress(library, "vkGetInstanceProcAddr")));
-#else
-        const char * names[] = {
-#ifdef __APPLE__
-            "libvulkan.1.dylib", "libvulkan.dylib", "libMoltenVK.dylib",
-#else
-            "libvulkan.so.1", "libvulkan.so",
-#endif
-        };
-        for (const char * name : names)
-        {
-            void * library = dlopen(name, RTLD_NOW | RTLD_LOCAL);
-            if (!library) continue;
-            get_instance_proc_addr = reinterpret_cast<PFN_vkGetInstanceProcAddr>(dlsym(library, "vkGetInstanceProcAddr"));
-            if (get_instance_proc_addr) break;
-        }
-#endif
-        if (!get_instance_proc_addr)
-        {
-            error = "the Vulkan loader library could not be loaded";
-            return;
-        }
-        functions.vkGetInstanceProcAddr = get_instance_proc_addr;
-        functions.vkCreateInstance = reinterpret_cast<PFN_vkCreateInstance>(
-            get_instance_proc_addr(VK_NULL_HANDLE, "vkCreateInstance"));
-        functions.vkEnumerateInstanceLayerProperties = reinterpret_cast<PFN_vkEnumerateInstanceLayerProperties>(
-            get_instance_proc_addr(VK_NULL_HANDLE, "vkEnumerateInstanceLayerProperties"));
-        if (!functions.vkCreateInstance) error = "the Vulkan loader library is invalid";
-    });
-    if (!error.empty()) throw std::runtime_error(error);
-    return functions;
-}
 
 void check(VkResult result, const char * what)
 {
@@ -184,49 +127,16 @@ const char * device_type_name(VkPhysicalDeviceType type)
     }
 }
 
-bool env_flag(const char * name)
-{
-    const char * value = std::getenv(name);
-    return value && *value && std::strcmp(value, "0") != 0;
-}
-
 //! VkInstance + the instance level functions
 class Instance {
 public:
     Instance()
     {
-        const GlobalFunctions & global = global_functions();
-
-        VkApplicationInfo application {};
-        application.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-        application.pApplicationName = "fresniff";
-        application.applicationVersion = 1;
-        application.pEngineName = "fresniff";
-        application.apiVersion = VK_API_VERSION_1_0;
-
-        // FRESNIFF_VK_VALIDATION=1 enables the Khronos validation layer if it is installed (debugging)
-        std::vector<const char *> layers;
-        if (env_flag("FRESNIFF_VK_VALIDATION") && global.vkEnumerateInstanceLayerProperties)
-        {
-            uint32_t count = 0;
-            global.vkEnumerateInstanceLayerProperties(&count, nullptr);
-            std::vector<VkLayerProperties> available(count);
-            global.vkEnumerateInstanceLayerProperties(&count, available.data());
-            for (const VkLayerProperties & layer : available)
-            {
-                if (std::strcmp(layer.layerName, "VK_LAYER_KHRONOS_validation") == 0) layers.push_back("VK_LAYER_KHRONOS_validation");
-            }
-        }
-
-        VkInstanceCreateInfo info {};
-        info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-        info.pApplicationInfo = &application;
-        info.enabledLayerCount = static_cast<uint32_t>(layers.size());
-        info.ppEnabledLayerNames = layers.data();
-        check(global.vkCreateInstance(&info, nullptr, &handle), "vkCreateInstance");
+        vk_loader::LoadedVulkan global;
+        vk_loader::create_instance(VK_API_VERSION_1_0, global, handle);
 
 #define FRESNIFF_VK_LOAD_INSTANCE(name) \
-        fn.name = reinterpret_cast<PFN_##name>(global.vkGetInstanceProcAddr(handle, #name)); \
+        fn.name = reinterpret_cast<PFN_##name>(global.get_instance_proc_addr(handle, #name)); \
         if (!fn.name) throw std::runtime_error("missing Vulkan function " #name);
         FRESNIFF_VK_INSTANCE_FUNCTIONS(FRESNIFF_VK_LOAD_INSTANCE)
 #undef FRESNIFF_VK_LOAD_INSTANCE
@@ -665,10 +575,15 @@ private:
         queue_info.queueCount = 1;
         queue_info.pQueuePriorities = &priority;
 
+        const std::vector<const char *> extensions = vk_loader::device_portability_extensions(
+            _instance->fn.vkEnumerateDeviceExtensionProperties, _physical_device);
+
         VkDeviceCreateInfo device_info {};
         device_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
         device_info.queueCreateInfoCount = 1;
         device_info.pQueueCreateInfos = &queue_info;
+        device_info.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
+        device_info.ppEnabledExtensionNames = extensions.data();
         check(_instance->fn.vkCreateDevice(_physical_device, &device_info, nullptr, &_device), "vkCreateDevice");
 
 #define FRESNIFF_VK_LOAD_DEVICE(name) \
