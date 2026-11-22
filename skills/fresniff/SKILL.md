@@ -1,6 +1,6 @@
 ---
 name: fresniff
-description: Analyze captured game or screen video with fresniff (the `fresniff` command, formerly trdrop++ / `trdrop-pp`) - the real framerate, frametimes, duplicate frames and frame tears of a recording, and with `--motion` how evenly the animation advances (animation error, perceived smoothness). Use this skill whenever the user wants to measure or compare the framerate, frame pacing, stutter, judder, smoothness or tearing of a video file (capture card, OBS, console or PC capture; .mkv / .mp4 / .avi), asks whether a game "really" runs at N fps or whether frame generation (DLSS / FSR / ...) output is smooth, wants framerate / frametime / smoothness charts or a motion vector overlay made from a video, or mentions fresniff, trdrop, trdrop++ or trdrop-pp - even if they don't name the tool.
+description: Analyze captured game or screen video with fresniff (the `fresniff` command) - the real framerate, frametimes, duplicate frames and frame tears of a recording, and with `--motion` how evenly the animation advances (animation error, perceived smoothness). Use this skill whenever the user wants to measure or compare the framerate, frame pacing, stutter, judder, smoothness or tearing of a video file (capture card, OBS, console or PC capture; .mkv / .mp4 / .avi), asks whether a game "really" runs at N fps or whether frame generation (DLSS / FSR / ...) output is smooth, wants framerate / frametime / smoothness charts or a motion vector overlay made from a video, or mentions fresniff - even if they don't name the tool.
 ---
 
 # fresniff

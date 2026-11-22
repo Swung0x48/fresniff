@@ -18,7 +18,6 @@ Analyzes captured game video:
 
 The per frame data is written as CSV, a summary goes to stderr, and [Python scripts](#plotting) plot it.
 Optionally the analysis runs on the GPU (Vulkan), including the decoding of HEVC / H.264 recordings.
-fresniff was called trdrop++ (`trdrop-pp`) before.
 
 ## Usage
 

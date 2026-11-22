@@ -1,5 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="108" height="108" viewBox="0 0 108 108">
-  <!-- the icon of the Android app (android/app/src/main/res/drawable/ic_launcher.xml): a frametime graph with a hitch -->
+  <!-- the icon of the Android app (android/app/src/main/res/drawable/ic_launcher.xml): a magnifier over stacked frames, showing the pixels -->
   <rect width="108" height="108" rx="24" fill="#1A1A19"/>
-  <path d="M24,66 L38,66 L44,42 L52,74 L60,58 L84,58" fill="none" stroke="#3987E5" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M37,17 H79 A5,5 0 0 1 84,22 V50 A5,5 0 0 1 79,55 H37 A5,5 0 0 1 32,50 V22 A5,5 0 0 1 37,17 Z" fill="none" stroke="#3987E5" stroke-width="4" stroke-opacity="0.3"/>
+  <path d="M31,23 H73 A5,5 0 0 1 78,28 V56 A5,5 0 0 1 73,61 H31 A5,5 0 0 1 26,56 V28 A5,5 0 0 1 31,23 Z" fill="#1A1A19" stroke="#3987E5" stroke-width="4" stroke-opacity="0.6"/>
+  <path d="M25,29 H67 A5,5 0 0 1 72,34 V62 A5,5 0 0 1 67,67 H25 A5,5 0 0 1 20,62 V34 A5,5 0 0 1 25,29 Z" fill="#1A1A19" stroke="#3987E5" stroke-width="5"/>
+  <path d="M42,61 A18,18 0 1 1 78,61 A18,18 0 1 1 42,61 Z" fill="#1A1A19" stroke="#3987E5" stroke-width="6"/>
+  <path d="M49.8,50.8 h5.8 v5.8 h-5.8 Z M57.1,50.8 h5.8 v5.8 h-5.8 Z M49.8,58.1 h5.8 v5.8 h-5.8 Z" fill="#3987E5" fill-opacity="0.3"/>
+  <path d="M64.4,50.8 h5.8 v5.8 h-5.8 Z M57.1,58.1 h5.8 v5.8 h-5.8 Z M64.4,58.1 h5.8 v5.8 h-5.8 Z M49.8,65.4 h5.8 v5.8 h-5.8 Z M57.1,65.4 h5.8 v5.8 h-5.8 Z M64.4,65.4 h5.8 v5.8 h-5.8 Z" fill="#3987E5"/>
+  <path d="M73,74 L86,87" stroke="#3987E5" stroke-width="8" stroke-linecap="round"/>
 </svg>
