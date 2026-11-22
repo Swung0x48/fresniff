@@ -296,6 +296,13 @@ DecoderChoice choose_decoder(const std::vector<std::string> & paths, bool vulkan
         h264 &= probe.codec_id == AV_CODEC_ID_H264;
     }
     if (!yuv) return { "opencv", not_yuv };
+#ifdef FRESNIFF_MACOS_VULKAN
+    (void)vulkan;
+    (void)h264;
+    (void)prefer_gpu;
+    (void)kH264CpuThreads;
+    if (vulkan_available) return { "vulkan", "" };
+#else
     if (vulkan_available && vulkan)
     {
         const unsigned threads = std::thread::hardware_concurrency();
@@ -305,6 +312,7 @@ DecoderChoice choose_decoder(const std::vector<std::string> & paths, bool vulkan
         }
         return { "vulkan", "" };
     }
+#endif
     return { "ffmpeg", vulkan_available ? no_vulkan : "this build has no Vulkan" };
 }
 

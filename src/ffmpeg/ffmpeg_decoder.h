@@ -44,6 +44,8 @@ struct Probe {
     AVPixelFormat format = AV_PIX_FMT_NONE;
     //! the decoder supports Vulkan hardware decoding
     bool vulkan = false;
+    //! the decoder supports VideoToolbox hardware decoding
+    bool videotoolbox = false;
 };
 Probe probe(const std::string & path);
 

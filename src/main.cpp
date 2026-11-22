@@ -994,7 +994,9 @@ std::unique_ptr<FramePipeline> make_pipeline(const Options & options)
         }
     }
 #endif
-#if defined(USE_FFMPEG) && defined(USE_VULKAN)
+#ifdef FRESNIFF_MACOS_VULKAN
+    if (options.decode == "vulkan") return make_macos_vulkan_pipeline(options.inputs, options.vk_device);
+#elif defined(USE_FFMPEG) && defined(USE_VULKAN)
     if (options.decode == "vulkan") return make_vulkan_video_pipeline(options.inputs, options.vk_device);
 #endif
 #ifdef USE_FFMPEG
@@ -1019,7 +1021,19 @@ std::unique_ptr<FramePipeline> make_pipeline(const Options & options)
         // with --motion the GPU also measures the motion, which is much slower on the CPU
         const DecoderChoice choice = choose_decoder(options.inputs, vulkan_available, options.motion);
         std::string fallback_reason = choice.reason;
-#ifdef USE_VULKAN
+#ifdef FRESNIFF_MACOS_VULKAN
+        if (choice.decoder == "vulkan")
+        {
+            try
+            {
+                return make_macos_vulkan_pipeline(options.inputs, options.vk_device);
+            }
+            catch (const std::exception & e)
+            {
+                fallback_reason = std::string("no MoltenVK GPU pipeline: ") + e.what();
+            }
+        }
+#elif defined(USE_VULKAN)
         if (choice.decoder == "vulkan")
         {
             try
