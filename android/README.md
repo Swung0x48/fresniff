@@ -1,15 +1,15 @@
-# trdrop++ for Android
+# fresniff for Android
 
 An app that analyzes a video on the phone: choose a video, get the summary, the charts and - if wanted - the
-motion video. It runs the command line program of trdrop++ as a native library, so the numbers are those of
+motion video. It runs the command line program of fresniff as a native library, so the numbers are those of
 the desktop version.
 
 | | |
 | --- | --- |
 | analysis | framerate, frametimes, tears, and the motion analysis (animation step, animation error, perceived smoothness), with the option for captures that are not in step with the game (`--async-capture`) |
 | charts | framerate and perceived smoothness over time, frametime distribution, animation error over time (with the spread of the votes) and its distribution. Drawn by the app itself (`charts/ChartView.kt`); touch a chart for its values, zoom with two fingers, double tap to reset. The Python scripts in `scripts/` draw the same from the CSV |
-| motion video | H.264 in MP4, played in the app (the controls are part of the page), saved to the gallery (`Movies/trdrop`) or shared. A recording of the phone's own screen (1080x2400) gives a 540x1200 video |
-| files | every analysis keeps its CSV, log and video in `Android/data/io.github.swung0x48.trdrop/files/analyses/<time>/`; the CSV can be shared |
+| motion video | H.264 in MP4, played in the app (the controls are part of the page), saved to the gallery (`Movies/fresniff`) or shared. A recording of the phone's own screen (1080x2400) gives a 540x1200 video |
+| files | every analysis keeps its CSV, log and video in `Android/data/io.github.swung0x48.fresniff/files/analyses/<time>/`; the CSV can be shared |
 
 Android 8.0 or newer, arm64.
 
@@ -78,10 +78,10 @@ FFmpeg is built without `--enable-gpl` / `--enable-nonfree` (LGPL), OpenCV is Ap
 An analysis can be started without touching the phone, its files can be pulled afterwards:
 
 ```
-adb push capture.mkv /sdcard/Android/data/io.github.swung0x48.trdrop/files/
-adb shell am start -n io.github.swung0x48.trdrop/.MainActivity \
-    --es video /sdcard/Android/data/io.github.swung0x48.trdrop/files/capture.mkv --ez autostart true
-adb pull /sdcard/Android/data/io.github.swung0x48.trdrop/files/analyses
+adb push capture.mkv /sdcard/Android/data/io.github.swung0x48.fresniff/files/
+adb shell am start -n io.github.swung0x48.fresniff/.MainActivity \
+    --es video /sdcard/Android/data/io.github.swung0x48.fresniff/files/capture.mkv --ez autostart true
+adb pull /sdcard/Android/data/io.github.swung0x48.fresniff/files/analyses
 ```
 
 More extras: `--ez async true` (capture out of step), `--ez motion_video false`, `--ez arrows true`

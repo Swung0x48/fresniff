@@ -6,7 +6,7 @@
 #include <opencv2/core.hpp>
 #include <opencv2/videoio.hpp>
 
-namespace trdrop {
+namespace fresniff {
 
 //! holds all opened videos and reads them in lockstep (VideoCaptureList in the original)
 class VideoSources {
@@ -38,4 +38,4 @@ private:
     long long _frames_read = 0;
 };
 
-} // namespace trdrop
+} // namespace fresniff

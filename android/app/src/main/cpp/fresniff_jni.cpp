@@ -1,4 +1,4 @@
-// JNI entry of the Android app: runs the command line program of trdrop++ in the process of the app.
+// JNI entry of the Android app: runs the command line program of fresniff in the process of the app.
 
 #include <jni.h>
 
@@ -16,7 +16,7 @@ extern "C" {
 #include <libavutil/log.h>
 }
 
-#include "trdrop_library.h"
+#include "fresniff_library.h"
 
 extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM * vm, void *)
 {
@@ -30,17 +30,17 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM * vm, void *)
 //! NativeAnalyzer.run(arguments, logPath, listener): the exit code of the program.
 //! Its messages (stderr) are written to logPath. Only one call at a time: stderr belongs to the process.
 extern "C" JNIEXPORT jint JNICALL
-Java_io_github_swung0x48_trdrop_NativeAnalyzer_run(JNIEnv * env, jobject, jobjectArray arguments, jstring log_path, jobject listener)
+Java_io_github_swung0x48_fresniff_NativeAnalyzer_run(JNIEnv * env, jobject, jobjectArray arguments, jstring log_path, jobject listener)
 {
-    std::vector<std::string> values { "trdrop-pp" };
-    unsetenv("TRDROP_GPU_PROFILE");
+    std::vector<std::string> values { "fresniff" };
+    unsetenv("FRESNIFF_GPU_PROFILE");
     const jsize count = env->GetArrayLength(arguments);
     for (jsize i = 0; i < count; ++i)
     {
         const jstring argument = static_cast<jstring>(env->GetObjectArrayElement(arguments, i));
         const char * text = env->GetStringUTFChars(argument, nullptr);
         // not an argument of the program: times the steps of the GPU pipeline (see vk_mediacodec_pipeline.cpp)
-        if (std::string(text) == "--gpu-profile") setenv("TRDROP_GPU_PROFILE", "1", 1);
+        if (std::string(text) == "--gpu-profile") setenv("FRESNIFF_GPU_PROFILE", "1", 1);
         else values.emplace_back(text);
         env->ReleaseStringUTFChars(argument, text);
         env->DeleteLocalRef(argument);
@@ -78,7 +78,7 @@ Java_io_github_swung0x48_trdrop_NativeAnalyzer_run(JNIEnv * env, jobject, jobjec
         return env->CallBooleanMethod(listener, on_progress, static_cast<jlong>(frames), static_cast<jdouble>(fraction)) == JNI_TRUE;
     };
 
-    const int code = trdrop_run(static_cast<int>(argv.size()), argv.data(), progress);
+    const int code = fresniff_run(static_cast<int>(argv.size()), argv.data(), progress);
 
     std::fflush(stderr);
     if (saved >= 0)

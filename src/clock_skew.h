@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 
-namespace trdrop {
+namespace fresniff {
 
 //! --ignore-clock-skew: a source at 59.94 Hz (60000 / 1001) recorded by a capture with its own clock at 60 fps (or
 //! the other way round, or at a multiple of the rate) drifts by one interval every ~1001 recorded frames
@@ -57,4 +57,4 @@ ClockSkewResult detect_clock_skew(const std::vector<double> & diff, const std::v
 //! (they share the time of the row before), one that was lengthened is moved
 std::vector<long long> clock_skew_times(const std::vector<double> & diff, const std::vector<int> & correction);
 
-} // namespace trdrop
+} // namespace fresniff

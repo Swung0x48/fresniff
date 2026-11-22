@@ -5,7 +5,7 @@
 
 #include <opencv2/imgproc.hpp>
 
-namespace trdrop {
+namespace fresniff {
 
 VideoSources::VideoSources(const std::vector<std::string> & paths)
 {
@@ -92,4 +92,4 @@ bool VideoSources::lossy_codec(size_t index) const
     return true;
 }
 
-} // namespace trdrop
+} // namespace fresniff

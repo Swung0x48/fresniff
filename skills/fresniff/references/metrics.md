@@ -1,4 +1,4 @@
-# trdrop++ output in detail
+# fresniff output in detail
 
 Read this when a question needs more than the summary lines: what a column means exactly, how a number is
 defined, or a statistic the summary doesn't give.

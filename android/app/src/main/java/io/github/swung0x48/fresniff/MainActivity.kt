@@ -1,4 +1,4 @@
-package io.github.swung0x48.trdrop
+package io.github.swung0x48.fresniff
 
 import android.content.Intent
 import android.os.Bundle
@@ -22,8 +22,8 @@ import com.google.android.material.progressindicator.LinearProgressIndicator
  * Choose a video, analyze it, open earlier analyses.
  *
  * For tests an analysis can be started with intent extras:
- *   adb shell am start -n io.github.swung0x48.trdrop/.MainActivity --es video <path> --ez autostart true
- * with the optional --ez async / motion_video / arrows / cpu / gpu (analyze on the CPU / GPU) and --es args "<more arguments for trdrop-pp>".
+ *   adb shell am start -n io.github.swung0x48.fresniff/.MainActivity --es video <path> --ez autostart true
+ * with the optional --ez async / motion_video / arrows / cpu / gpu (analyze on the CPU / GPU) and --es args "<more arguments for fresniff>".
  */
 class MainActivity : AppCompatActivity(), AnalysisRunner.Listener {
     private var source: String? = null

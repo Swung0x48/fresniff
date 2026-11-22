@@ -7,7 +7,7 @@
 
 #include "ffmpeg/ffmpeg_decoder.h"
 
-namespace trdrop::ffmpeg {
+namespace fresniff::ffmpeg {
 
 //! the planes of an 8-bit YUV frame in memory
 struct YuvPlanes {
@@ -27,4 +27,4 @@ YuvPlanes yuv_planes(const AVFrame * frame);
 //! the frame as I420 at the resolution the motion is measured at, or (native) at its own (MotionDetail::picture)
 void motion_picture(const YuvPlanes & planes, cv::Mat & picture, cv::Mat & scratch, bool native);
 
-} // namespace trdrop::ffmpeg
+} // namespace fresniff::ffmpeg

@@ -6,7 +6,7 @@
 #include "diff_engine.h"
 #include "options.h"
 
-namespace trdrop {
+namespace fresniff {
 
 //! a single detected tear (TearData in the original)
 struct Tear {
@@ -72,4 +72,4 @@ private:
     bool _has_difference = false;
 };
 
-} // namespace trdrop
+} // namespace fresniff

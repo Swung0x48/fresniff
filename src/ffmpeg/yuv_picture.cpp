@@ -4,7 +4,7 @@
 
 #include "motion.h"
 
-namespace trdrop::ffmpeg {
+namespace fresniff::ffmpeg {
 
 YuvPlanes yuv_planes(const AVFrame * frame)
 {
@@ -64,4 +64,4 @@ void motion_picture(const YuvPlanes & planes, cv::Mat & picture, cv::Mat & scrat
     }
 }
 
-} // namespace trdrop::ffmpeg
+} // namespace fresniff::ffmpeg

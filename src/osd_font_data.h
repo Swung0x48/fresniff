@@ -3,7 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace trdrop {
+namespace fresniff {
 
 // Embedded unmodified League Spartan static TrueType fonts (SIL OFL 1.1).
 // Source: third_party/fonts/LeagueSpartan-Bold.ttf & LeagueSpartan-Medium.ttf
@@ -20,4 +20,4 @@ extern const size_t kNotoSansScMediumTtfSize;
 extern const uint32_t kNotoSansScCodepoints[];
 extern const size_t kNotoSansScCodepointCount;
 
-} // namespace trdrop
+} // namespace fresniff

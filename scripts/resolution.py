@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Plots what the render resolution estimate of trdrop++ is made of, to judge a recording by eye.
+"""Plots what the render resolution estimate of fresniff is made of, to judge a recording by eye.
 
-    trdrop-pp capture.mkv --resolution-data capture.res.csv -o capture.csv
+    fresniff capture.mkv --resolution-data capture.res.csv -o capture.csv
     python resolution.py capture.res.csv
     python resolution.py capture.res.csv --around 0.42 -o grid.png
 
@@ -23,7 +23,7 @@ import argparse
 import csv
 import sys
 
-import trdrop_csv
+import fresniff_csv
 
 CODEC_GRID = 32.0
 GRID_COLOR = "#2f6fb0"
@@ -47,10 +47,10 @@ def read_data(path):
         try:
             point = (float(row["frequency"]), float(row["value"]))
         except (KeyError, ValueError):
-            raise SystemExit(f"error: {path} is not a file written by trdrop-pp --resolution-data")
+            raise SystemExit(f"error: {path} is not a file written by fresniff --resolution-data")
         curves.setdefault(row["curve"], {}).setdefault((row["direction"], row["age"]), []).append(point)
     if not curves:
-        raise SystemExit(f"error: {path} holds no data (was it written by trdrop-pp --resolution-data?)")
+        raise SystemExit(f"error: {path} holds no data (was it written by fresniff --resolution-data?)")
     return meta, curves
 
 
@@ -224,11 +224,11 @@ def plot_stairs(axis, curves, meta):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Plot the data behind the render resolution estimate (trdrop-pp --resolution-data).")
-    parser.add_argument("csv", help="file written by trdrop-pp --resolution-data")
+    parser = argparse.ArgumentParser(description="Plot the data behind the render resolution estimate (fresniff --resolution-data).")
+    parser.add_argument("csv", help="file written by fresniff --resolution-data")
     parser.add_argument("--around", type=float, default=None, metavar="FREQ",
                         help="show the pixel grid only around this frequency (cycles per pixel), e.g. 0.42")
-    parser.add_argument("--span", type=trdrop_csv.positive_float, default=0.02,
+    parser.add_argument("--span", type=fresniff_csv.positive_float, default=0.02,
                         help="with --around: this far to both sides (default: 0.02)")
     parser.add_argument("--peaks", type=int, default=4, help="peaks labelled per axis (default: 4)")
     parser.add_argument("--min-strength", type=float, default=1.8,
@@ -242,7 +242,7 @@ def main():
     args = parser.parse_args()
 
     meta, curves = read_data(args.csv)
-    trdrop_csv.setup_matplotlib(args)
+    fresniff_csv.setup_matplotlib(args)
     import matplotlib.pyplot as plt
 
     figure = plt.figure(figsize=(16, 11.5), constrained_layout=True)

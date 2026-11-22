@@ -9,7 +9,7 @@
 
 #include "motion_video.h"
 
-namespace trdrop {
+namespace fresniff {
 
 namespace {
 
@@ -695,4 +695,4 @@ void ResolutionVideo::write(long long frame, bool duplicate, const ResolutionAna
     ++_frames;
 }
 
-} // namespace trdrop
+} // namespace fresniff

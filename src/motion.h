@@ -8,7 +8,7 @@
 
 #include <opencv2/core.hpp>
 
-namespace trdrop {
+namespace fresniff {
 
 //! The motion of a frame is kept per cell of a fine grid. Every cell with motion later has one vote on the
 //! animation step of the frame, so a moving part of the picture is enough (a cell is 1 / 640 of it).
@@ -407,4 +407,4 @@ private:
     std::vector<float> _recent_steps;
 };
 
-} // namespace trdrop
+} // namespace fresniff

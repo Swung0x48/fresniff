@@ -1,4 +1,4 @@
-package io.github.swung0x48.trdrop
+package io.github.swung0x48.fresniff
 
 import android.content.Context
 import java.io.File
@@ -55,7 +55,7 @@ class Analysis(val directory: File) {
     }
 }
 
-/** The per frame CSV of trdrop++ (the columns of the first video), NaN where a value is missing. */
+/** The per frame CSV of fresniff (the columns of the first video), NaN where a value is missing. */
 class FrameData(
     val diff: FloatArray,
     val fps: FloatArray,
@@ -104,7 +104,7 @@ class FrameData(
     }
 }
 
-/** The numbers of the summary lines trdrop++ prints for a video. */
+/** The numbers of the summary lines fresniff prints for a video. */
 class Summary(lines: List<String>) {
     private val video = lines.firstOrNull { it.startsWith("v1: ") && it.contains(" fps, ") }.orEmpty()
     private val frames = lines.firstOrNull { it.startsWith("v1: effective") }.orEmpty()
@@ -113,7 +113,7 @@ class Summary(lines: List<String>) {
     val motionVideo: String = lines.firstOrNull { it.startsWith("v1 motion video:") }?.substringAfter('(')?.substringBeforeLast(')').orEmpty()
     val speed: String = lines.firstOrNull { it.startsWith("analyzed ") }?.substringBefore(" |").orEmpty()
     val note: String = lines.firstOrNull { it.startsWith("v1 note:") }?.removePrefix("v1 note: ").orEmpty()
-    val error: String = lines.firstOrNull { it.contains("trdrop-pp: error:") }?.substringAfter("error: ").orEmpty()
+    val error: String = lines.firstOrNull { it.contains("fresniff: error:") }?.substringAfter("error: ").orEmpty()
 
     private fun number(text: String, pattern: String): Double? = Regex(pattern).find(text)?.groupValues?.get(1)?.toDoubleOrNull()
 

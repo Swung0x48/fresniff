@@ -4,7 +4,7 @@
 
 #include <opencv2/imgproc.hpp>
 
-namespace trdrop {
+namespace fresniff {
 
 namespace {
 
@@ -71,4 +71,4 @@ std::unique_ptr<DiffEngine> make_cpu_engine(size_t video_count)
     return std::make_unique<CpuDiffEngine>(video_count);
 }
 
-} // namespace trdrop
+} // namespace fresniff

@@ -50,7 +50,7 @@ extern "C" {
 #include "ffmpeg/ffmpeg_decoder.h"
 #include "vulkan/vk_motion_shared.h"
 
-namespace trdrop {
+namespace fresniff {
 
 namespace {
 
@@ -131,8 +131,8 @@ public:
     explicit MediaCodecVulkanPipeline(const std::vector<std::string> & paths)
         : _videos(paths.size())
     {
-        // TRDROP_GPU_PROFILE: every step of the analysis is run on its own and timed (slower, for tuning)
-        _profile = std::getenv("TRDROP_GPU_PROFILE") != nullptr;
+        // FRESNIFF_GPU_PROFILE: every step of the analysis is run on its own and timed (slower, for tuning)
+        _profile = std::getenv("FRESNIFF_GPU_PROFILE") != nullptr;
         try
         {
             _create_device();
@@ -441,8 +441,8 @@ private:
     void _create_device()
     {
         VkApplicationInfo application { VK_STRUCTURE_TYPE_APPLICATION_INFO };
-        application.pApplicationName = "trdrop++";
-        application.pEngineName = "trdrop++";
+        application.pApplicationName = "fresniff";
+        application.pEngineName = "fresniff";
         application.apiVersion = VK_API_VERSION_1_1;
         const char * instance_extensions[] = { "VK_KHR_surface", "VK_KHR_android_surface" };
         VkInstanceCreateInfo instance_info { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
@@ -523,13 +523,13 @@ private:
         vkGetDeviceQueue(_device, _queue_family, 0, &_queue);
 
         // not in the Vulkan library of old Android versions the app still runs on: looked up
-#define TRDROP_LOAD(name) \
+#define FRESNIFF_LOAD(name) \
         _fn.name = reinterpret_cast<PFN_##name>(vkGetDeviceProcAddr(_device, #name)); \
         if (!_fn.name) throw std::runtime_error("missing Vulkan function " #name);
-        TRDROP_LOAD(vkCreateSamplerYcbcrConversion)
-        TRDROP_LOAD(vkDestroySamplerYcbcrConversion)
-        TRDROP_LOAD(vkGetAndroidHardwareBufferPropertiesANDROID)
-#undef TRDROP_LOAD
+        FRESNIFF_LOAD(vkCreateSamplerYcbcrConversion)
+        FRESNIFF_LOAD(vkDestroySamplerYcbcrConversion)
+        FRESNIFF_LOAD(vkGetAndroidHardwareBufferPropertiesANDROID)
+#undef FRESNIFF_LOAD
 
         VkCommandPoolCreateInfo pool_info { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
         pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
@@ -1552,7 +1552,7 @@ private:
             _drain(encoder, true);
             if (encoder.written != encoder.presented)
             {
-                std::fprintf(stderr, "trdrop-pp: the encoder wrote %lld of %lld pictures of the motion video\n", encoder.written, encoder.presented);
+                std::fprintf(stderr, "fresniff: the encoder wrote %lld of %lld pictures of the motion video\n", encoder.written, encoder.presented);
             }
         }
         encoder.active = false;
@@ -1724,4 +1724,4 @@ std::unique_ptr<FramePipeline> make_mediacodec_vulkan_pipeline(const std::vector
     return std::make_unique<MediaCodecVulkanPipeline>(paths);
 }
 
-} // namespace trdrop
+} // namespace fresniff

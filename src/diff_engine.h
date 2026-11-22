@@ -11,7 +11,7 @@
 #include "options.h"
 #include "resolution.h"
 
-namespace trdrop {
+namespace fresniff {
 
 //! result of comparing one frame of a video with its previous frame
 struct RowCounts {
@@ -80,4 +80,4 @@ int resolve_vulkan_device(int device_index, std::string & name);
 std::unique_ptr<DiffEngine> make_vulkan_engine(int device_index, size_t video_count);
 #endif
 
-} // namespace trdrop
+} // namespace fresniff

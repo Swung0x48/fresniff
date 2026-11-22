@@ -1,6 +1,6 @@
 // Generates small lossless test videos with a known "real" framerate / tear pattern.
 //
-//   trdrop_make_fixtures <output-dir>
+//   fresniff_make_fixtures <output-dir>
 //
 // 30in60.avi   60 fps container, a new frame every 2nd frame             -> 30 fps, 33.3 ms
 // stutter.avi  60 fps container, frames held 1,2,3,2,1,... frames           -> 30 fps, 16.7-50 ms

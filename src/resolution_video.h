@@ -11,7 +11,7 @@
 #include "motion_video_target.h"
 #include "resolution.h"
 
-namespace trdrop {
+namespace fresniff {
 
 //! Writes a copy of a video that shows how its render resolution is estimated (--resolution-video), frame by
 //! frame, at the resolution the motion is measured at:
@@ -126,4 +126,4 @@ private:
     MotionVideoScene _scene;
 };
 
-} // namespace trdrop
+} // namespace fresniff

@@ -4,7 +4,7 @@
 
 #include "ffmpeg/ffmpeg_decoder.h"
 
-namespace trdrop::ffmpeg {
+namespace fresniff::ffmpeg {
 
 //! a video encoder and the file its packets are written to
 class EncodedVideo {
@@ -46,4 +46,4 @@ private:
     bool _finished = false;
 };
 
-} // namespace trdrop::ffmpeg
+} // namespace fresniff::ffmpeg

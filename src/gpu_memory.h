@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <memory>
 
-namespace trdrop {
+namespace fresniff {
 
 //! How much of a GPU's dedicated memory all programs together use. Windows counts it for every process
 //! (performance counter "GPU Adapter Memory"); Vulkan's memory budget only knows the own process. Elsewhere
@@ -24,4 +24,4 @@ private:
     std::unique_ptr<Impl> _impl;
 };
 
-} // namespace trdrop
+} // namespace fresniff

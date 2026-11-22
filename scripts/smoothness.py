@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plots the motion analysis of a trdrop++ CSV written with --motion.
+"""Plots the motion analysis of a fresniff CSV written with --motion.
 
 Three charts, all videos overlaid:
   framerate            pixel based framerate (vN_fps) and perceived smoothness (vN_perceived_fps);
@@ -9,14 +9,14 @@ Three charts, all videos overlaid:
                        uncertainty of the steps as a band (vN_anim_step_spread)
   animation error      histogram
 
-    trdrop-pp capture.mkv --motion -o capture.csv
+    fresniff capture.mkv --motion -o capture.csv
     python smoothness.py capture.csv --fps 60 -o smoothness.png
 """
 
 import argparse
 import math
 
-import trdrop_csv
+import fresniff_csv
 
 
 def percentile(sorted_values, p):
@@ -29,18 +29,18 @@ def percentile(sorted_values, p):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Plot the perceived smoothness and animation error from a trdrop++ CSV written with --motion.")
-    trdrop_csv.add_common_arguments(parser)
-    parser.add_argument("--fps", type=trdrop_csv.positive_float, default=None,
+    parser = argparse.ArgumentParser(description="Plot the perceived smoothness and animation error from a fresniff CSV written with --motion.")
+    fresniff_csv.add_common_arguments(parser)
+    parser.add_argument("--fps", type=fresniff_csv.positive_float, default=None,
                         help="recorded framerate of the capture, shows the x axis in seconds instead of frames")
-    parser.add_argument("--max-error", type=trdrop_csv.positive_float, default=None,
+    parser.add_argument("--max-error", type=fresniff_csv.positive_float, default=None,
                         help="range of the animation error axis in ms (default: the 99th percentile, at least 25)")
     args = parser.parse_args()
 
-    analysis = trdrop_csv.read_analysis(args.csv, args.labels)
+    analysis = fresniff_csv.read_analysis(args.csv, args.labels)
     if not any(video.anim_step for video in analysis.videos):
-        raise SystemExit("error: the CSV has no motion columns, run trdrop-pp with --motion")
-    trdrop_csv.setup_matplotlib(args)
+        raise SystemExit("error: the CSV has no motion columns, run fresniff with --motion")
+    fresniff_csv.setup_matplotlib(args)
     import matplotlib.pyplot as plt
 
     x = [frame / args.fps for frame in analysis.frames] if args.fps else analysis.frames
@@ -121,7 +121,7 @@ def main():
     if len(analysis.videos) > 1 and all_errors:
         histogram_axis.legend(fontsize=9)
 
-    trdrop_csv.finish_plot(figure, args)
+    fresniff_csv.finish_plot(figure, args)
 
 
 if __name__ == "__main__":

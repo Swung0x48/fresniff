@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-namespace trdrop {
+namespace fresniff {
 
 //! the original supports comparing up to three videos in parallel
 constexpr int kMaxVideoCount = 3;
@@ -130,8 +130,8 @@ struct Options {
     //! --motion-video-native: the motion video at the resolution of the input, not of the motion
     bool motion_video_native = false;
     //! called while the videos are analyzed (frames read, progress 0 - 1 or < 0 if unknown), the analysis
-    //! stops with an error if it returns false. For programs that embed the analysis (trdrop_library.h)
+    //! stops with an error if it returns false. For programs that embed the analysis (fresniff_library.h)
     std::function<bool(long long, double)> progress;
 };
 
-} // namespace trdrop
+} // namespace fresniff

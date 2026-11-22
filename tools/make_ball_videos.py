@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Writes the motion_ball_* demo videos for trdrop-pp --motion: a ball moving at constant speed over a
+"""Writes the motion_ball_* demo videos for fresniff --motion: a ball moving at constant speed over a
 static background, shown with different frame pacing. H.264 in mkv, like a recording.
 
     python make_ball_videos.py <output dir> [--ffmpeg ffmpeg] [--encoder h264_nvenc]

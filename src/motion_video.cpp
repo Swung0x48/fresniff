@@ -10,7 +10,7 @@
 
 #include "video_writer.h"
 
-namespace trdrop {
+namespace fresniff {
 
 namespace {
 
@@ -1366,4 +1366,4 @@ void MotionVideo::write(const MotionVideoFrame & values, const MotionDetail & de
     ++_frames;
 }
 
-} // namespace trdrop
+} // namespace fresniff

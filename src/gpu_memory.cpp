@@ -17,7 +17,7 @@
 #include <vector>
 #endif
 
-namespace trdrop {
+namespace fresniff {
 
 #ifdef _WIN32
 
@@ -94,4 +94,4 @@ long long GpuMemoryUse::dedicated_bytes() { return -1; }
 
 #endif
 
-} // namespace trdrop
+} // namespace fresniff

@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "trdrop-android"
+rootProject.name = "fresniff-android"
 include(":app")

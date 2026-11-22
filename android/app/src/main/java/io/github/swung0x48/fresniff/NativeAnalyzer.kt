@@ -1,9 +1,9 @@
-package io.github.swung0x48.trdrop
+package io.github.swung0x48.fresniff
 
-/** The command line program of trdrop++ as a native library (libtrdrop.so). */
+/** The command line program of fresniff as a native library (libfresniff.so). */
 object NativeAnalyzer {
     init {
-        System.loadLibrary("trdrop")
+        System.loadLibrary("fresniff")
     }
 
     fun interface ProgressListener {
@@ -12,7 +12,7 @@ object NativeAnalyzer {
     }
 
     /**
-     * Runs trdrop-pp with these arguments, its messages go to the file logPath.
+     * Runs fresniff with these arguments, its messages go to the file logPath.
      * Returns the exit code: 0 success, 1 error, 2 invalid arguments. One call at a time.
      */
     external fun run(arguments: Array<String>, logPath: String, listener: ProgressListener?): Int

@@ -11,7 +11,7 @@
 
 #include "motion.h"
 
-namespace trdrop {
+namespace fresniff {
 
 //! Render resolution of an upscaled picture (--resolution), from two traces an upscaler leaves:
 //!
@@ -351,4 +351,4 @@ private:
     std::array<std::array<long long, kResolutionStairHeights + 1>, 2> _stairs {};
 };
 
-} // namespace trdrop
+} // namespace fresniff

@@ -14,7 +14,7 @@
 #include "motion.h"
 #include "motion_video_target.h"
 
-namespace trdrop {
+namespace fresniff {
 
 //! must match yuv_diff.comp
 struct PushConstants {
@@ -612,4 +612,4 @@ inline void build_overlay_upload(const MotionVideoScene & scene, uint32_t width,
     }
 }
 
-} // namespace trdrop
+} // namespace fresniff

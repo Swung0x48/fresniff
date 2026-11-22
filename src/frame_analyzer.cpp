@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <numeric>
 
-namespace trdrop {
+namespace fresniff {
 
 namespace {
 
@@ -295,4 +295,4 @@ double FrameAnalyzer::_frame_difference(const std::vector<double> & row_differen
     return found_different_pixel ? 1.0 : 0.0;
 }
 
-} // namespace trdrop
+} // namespace fresniff

@@ -42,7 +42,7 @@ extern "C" {
 #error "the Vulkan Video pipeline needs FFmpeg 8.0 or newer"
 #endif
 
-namespace trdrop {
+namespace fresniff {
 
 namespace {
 
@@ -144,7 +144,7 @@ int image_count(const AVVkFrame * vkf)
     return count;
 }
 
-#define TRDROP_VKV_DEVICE_FUNCTIONS(X) \
+#define FRESNIFF_VKV_DEVICE_FUNCTIONS(X) \
     X(vkGetDeviceQueue) X(vkGetDeviceQueue2) \
     X(vkCreateCommandPool) X(vkDestroyCommandPool) X(vkAllocateCommandBuffers) \
     X(vkBeginCommandBuffer) X(vkEndCommandBuffer) X(vkResetCommandBuffer) \
@@ -1760,17 +1760,17 @@ private:
         auto get_memory_properties = reinterpret_cast<PFN_vkGetPhysicalDeviceMemoryProperties>(
             get_instance_proc_addr(_vk->inst, "vkGetPhysicalDeviceMemoryProperties"));
         if (!get_device_proc_addr || !get_properties || !get_memory_properties) throw std::runtime_error("missing Vulkan instance functions");
-#define TRDROP_VKV_LOAD(name) \
+#define FRESNIFF_VKV_LOAD(name) \
         _fn.name = reinterpret_cast<PFN_##name>(get_device_proc_addr(_device, #name)); \
         if (!_fn.name) throw std::runtime_error("missing Vulkan function " #name);
-        TRDROP_VKV_DEVICE_FUNCTIONS(TRDROP_VKV_LOAD)
-#undef TRDROP_VKV_LOAD
+        FRESNIFF_VKV_DEVICE_FUNCTIONS(FRESNIFF_VKV_LOAD)
+#undef FRESNIFF_VKV_LOAD
 
         VkPhysicalDeviceProperties properties;
         get_properties(_vk->phys_dev, &properties);
         if (_device_name != properties.deviceName)
         {
-            std::fprintf(stderr, "trdrop-pp: FFmpeg opened '%s' as Vulkan device %d (expected '%s')\n",
+            std::fprintf(stderr, "fresniff: FFmpeg opened '%s' as Vulkan device %d (expected '%s')\n",
                          properties.deviceName, _device_index, _device_name.c_str());
             _device_name = properties.deviceName;
         }
@@ -2143,9 +2143,9 @@ private:
     uint32_t _max_group_invocations = 0;
     VkPhysicalDeviceMemoryProperties _memory_properties {};
     struct {
-#define TRDROP_VKV_DECLARE(name) PFN_##name name = nullptr;
-        TRDROP_VKV_DEVICE_FUNCTIONS(TRDROP_VKV_DECLARE)
-#undef TRDROP_VKV_DECLARE
+#define FRESNIFF_VKV_DECLARE(name) PFN_##name name = nullptr;
+        FRESNIFF_VKV_DEVICE_FUNCTIONS(FRESNIFF_VKV_DECLARE)
+#undef FRESNIFF_VKV_DECLARE
     } _fn;
 
     // motion: pyramid and tracking pipelines
@@ -2201,4 +2201,4 @@ std::unique_ptr<FramePipeline> make_vulkan_video_pipeline(const std::vector<std:
     return std::make_unique<VulkanVideoPipeline>(paths, device_index);
 }
 
-} // namespace trdrop
+} // namespace fresniff

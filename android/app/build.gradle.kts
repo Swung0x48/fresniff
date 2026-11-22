@@ -7,12 +7,12 @@ fun nativeDependency(property: String): String =
     rootProject.file(providers.gradleProperty(property).get()).absolutePath.replace('\\', '/')
 
 android {
-    namespace = "io.github.swung0x48.trdrop"
+    namespace = "io.github.swung0x48.fresniff"
     compileSdk = 36
     ndkVersion = "28.2.13676358"
 
     defaultConfig {
-        applicationId = "io.github.swung0x48.trdrop"
+        applicationId = "io.github.swung0x48.fresniff"
         minSdk = 26
         targetSdk = 36
         versionCode = 1
@@ -25,8 +25,8 @@ android {
             cmake {
                 arguments += listOf(
                     "-DANDROID_STL=c++_shared",
-                    "-DTRDROP_OPENCV_ANDROID_SDK=${nativeDependency("trdrop.opencvAndroidSdk")}",
-                    "-DTRDROP_FFMPEG_ANDROID=${nativeDependency("trdrop.ffmpegAndroid")}",
+                    "-DFRESNIFF_OPENCV_ANDROID_SDK=${nativeDependency("fresniff.opencvAndroidSdk")}",
+                    "-DFRESNIFF_FFMPEG_ANDROID=${nativeDependency("fresniff.ffmpegAndroid")}",
                 )
             }
         }

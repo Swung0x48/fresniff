@@ -42,7 +42,7 @@
 #pragma GCC diagnostic pop
 #endif
 
-namespace trdrop {
+namespace fresniff {
 
 namespace {
 
@@ -568,4 +568,4 @@ void draw_rounded_rect_rgba(cv::Mat & rgba_pm, float x, float y, float w, float 
     }
 }
 
-} // namespace trdrop
+} // namespace fresniff

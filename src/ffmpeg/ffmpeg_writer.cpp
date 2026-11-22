@@ -17,7 +17,7 @@ extern "C" {
 #include "ffmpeg/ffmpeg_decoder.h"
 #include "ffmpeg/ffmpeg_encoder.h"
 
-namespace trdrop {
+namespace fresniff {
 
 namespace ffmpeg {
 
@@ -287,4 +287,4 @@ std::unique_ptr<VideoWriter> make_ffmpeg_video_writer(const std::string & path, 
     return std::make_unique<FfmpegVideoWriter>(path, width, height, fps);
 }
 
-} // namespace trdrop
+} // namespace fresniff

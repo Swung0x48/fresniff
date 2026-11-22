@@ -1,4 +1,4 @@
-"""Shared helpers for reading the per frame CSV written by trdrop++."""
+"""Shared helpers for reading the per frame CSV written by fresniff."""
 
 import argparse
 import csv
@@ -21,12 +21,12 @@ class Video:
     fps: list = field(default_factory=list)
     frametime_ms: list = field(default_factory=list)
     tears: list = field(default_factory=list)
-    # only with trdrop-pp --motion, NaN where not available
+    # only with fresniff --motion, NaN where not available
     anim_step: list = field(default_factory=list)
     anim_step_spread: list = field(default_factory=list)
     anim_error_ms: list = field(default_factory=list)
     perceived_fps: list = field(default_factory=list)
-    # only with trdrop-pp --async-capture: pictures the capture lost before a new frame
+    # only with fresniff --async-capture: pictures the capture lost before a new frame
     lost: list = field(default_factory=list)
 
 
@@ -42,11 +42,11 @@ def _number(text):
 
 
 def read_analysis(path, labels=None):
-    """Reads a trdrop++ CSV from a file path, or from stdin if path is None or '-'."""
+    """Reads a fresniff CSV from a file path, or from stdin if path is None or '-'."""
     if path in (None, "-"):
         if sys.stdin is None or sys.stdin.isatty():
-            raise SystemExit("error: no CSV given - pass a file or pipe trdrop-pp into this script, "
-                             "e.g. trdrop-pp video.avi | python " + sys.argv[0])
+            raise SystemExit("error: no CSV given - pass a file or pipe fresniff into this script, "
+                             "e.g. fresniff video.avi | python " + sys.argv[0])
         stream = io.TextIOWrapper(sys.stdin.buffer, encoding="utf-8", newline="")
         return _parse(stream, labels, "<stdin>")
     try:
@@ -63,7 +63,7 @@ def _parse(stream, labels, name):
     except StopIteration:
         raise SystemExit(f"error: {name} is empty")
     if not header or header[0] != "frame":
-        raise SystemExit(f"error: {name} doesn't look like a trdrop++ CSV (first column must be 'frame')")
+        raise SystemExit(f"error: {name} doesn't look like a fresniff CSV (first column must be 'frame')")
 
     # column index -> (video number, metric)
     columns = {}
@@ -96,7 +96,7 @@ def _parse(stream, labels, name):
 
 def add_common_arguments(parser):
     parser.add_argument("csv", nargs="?", default="-",
-                        help="CSV written by trdrop++ (default: read from stdin)")
+                        help="CSV written by fresniff (default: read from stdin)")
     parser.add_argument("--labels", type=lambda text: text.split(","), default=None,
                         help="comma separated legend labels per video, e.g. 'PS5,XSX'")
     parser.add_argument("--title", default=None, help="plot title")

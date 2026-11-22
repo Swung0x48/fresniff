@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name" translatable="false">trdrop++</string>
+    <string name="app_name" translatable="false">fresniff</string>
 
     <string name="new_analysis">New analysis</string>
     <string name="pick_video">Choose a video</string>
@@ -56,7 +56,7 @@
     <string name="pause">Pause</string>
     <string name="share_video">Share</string>
     <string name="save_video">Save to gallery</string>
-    <string name="saved_video">Saved to Movies/trdrop</string>
+    <string name="saved_video">Saved to Movies/fresniff</string>
     <string name="share_csv">Share the CSV</string>
     <string name="details">Details</string>
 

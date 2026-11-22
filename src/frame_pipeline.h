@@ -8,7 +8,7 @@
 #include "motion_video_target.h"
 #include "options.h"
 
-namespace trdrop {
+namespace fresniff {
 
 //! Reads the input videos in lockstep and computes the per row differences of consecutive frames.
 //!
@@ -92,7 +92,7 @@ struct DecoderChoice {
 DecoderChoice choose_decoder(const std::vector<std::string> & paths, bool vulkan_available, bool prefer_gpu);
 #endif
 
-#ifdef TRDROP_MEDIACODEC_VULKAN
+#ifdef FRESNIFF_MEDIACODEC_VULKAN
 //! Android: MediaCodec decoding into hardware buffers, analysis and motion video on the GPU with Vulkan.
 //! throws std::runtime_error if the device or an input can't do that
 std::unique_ptr<FramePipeline> make_mediacodec_vulkan_pipeline(const std::vector<std::string> & paths);
@@ -104,4 +104,4 @@ std::unique_ptr<FramePipeline> make_mediacodec_vulkan_pipeline(const std::vector
 std::unique_ptr<FramePipeline> make_vulkan_video_pipeline(const std::vector<std::string> & paths, int device_index);
 #endif
 
-} // namespace trdrop
+} // namespace fresniff

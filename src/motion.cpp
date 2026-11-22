@@ -6,7 +6,7 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/video/tracking.hpp>
 
-namespace trdrop {
+namespace fresniff {
 
 namespace {
 
@@ -737,4 +737,4 @@ MotionAnalyzer::Summary MotionAnalyzer::summary() const
     return result;
 }
 
-} // namespace trdrop
+} // namespace fresniff

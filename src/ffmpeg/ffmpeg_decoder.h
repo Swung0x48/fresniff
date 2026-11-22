@@ -10,7 +10,7 @@ extern "C" {
 #include <libavutil/pixfmt.h>
 }
 
-namespace trdrop::ffmpeg {
+namespace fresniff::ffmpeg {
 
 //! FFmpeg error code as text
 std::string error_string(int error);
@@ -98,4 +98,4 @@ private:
     AVPixelFormat _hw_format = AV_PIX_FMT_NONE;
 };
 
-} // namespace trdrop::ffmpeg
+} // namespace fresniff::ffmpeg

@@ -1,4 +1,4 @@
-// trdrop++ (trdrop-pp): analyzes captured video and writes the per frame framerate / frametime / tear
+// fresniff: analyzes captured video and writes the per frame framerate / frametime / tear
 // data and, with --motion, how evenly the animation advances.
 
 #include <algorithm>
@@ -26,7 +26,7 @@
 #include "frame_pipeline.h"
 #include "motion_video.h"
 #include "resolution_video.h"
-#include "trdrop_library.h"
+#include "fresniff_library.h"
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -36,7 +36,7 @@
 #endif
 #include "options.h"
 
-namespace trdrop {
+namespace fresniff {
 namespace {
 
 constexpr const char * kVersion = "1.1.1";
@@ -44,9 +44,9 @@ constexpr const char * kVersion = "1.1.1";
 void print_usage(std::ostream & out)
 {
     out <<
-R"(trdrop++ - raw video analysis (framerate, frametime and tear detection)
+R"(fresniff - raw video analysis (framerate, frametime, tears, motion and render resolution)
 
-usage: trdrop-pp [options] <video> [<video> [<video>]]
+usage: fresniff [options] <video> [<video> [<video>]]
 
 Compares up to 3 videos frame by frame and writes one CSV row per frame.
 
@@ -327,7 +327,7 @@ bool parse_arguments(int argc, char ** argv, Options & options)
         }
         else if (arg == "--") { only_inputs = true; }
         else if (arg == "-h" || arg == "--help") { print_usage(std::cout); return false; }
-        else if (arg == "-v" || arg == "--version") { std::cout << "trdrop++ " << kVersion << "\n"; return false; }
+        else if (arg == "-v" || arg == "--version") { std::cout << "fresniff " << kVersion << "\n"; return false; }
         else if (arg == "-o" || arg == "--output") { options.output_path = next(); }
         else if (arg == "--tears") { options.tears_path = next(); }
         else if (arg == "--no-summary") { options.print_summary = false; }
@@ -410,7 +410,7 @@ bool parse_arguments(int argc, char ** argv, Options & options)
                 throw std::invalid_argument("--decode " + options.decode + ": this build has no FFmpeg support (configure with -DUSE_FFMPEG=ON)");
             }
 #endif
-#if !defined(USE_VULKAN) && !defined(TRDROP_MEDIACODEC_VULKAN)
+#if !defined(USE_VULKAN) && !defined(FRESNIFF_MEDIACODEC_VULKAN)
             if (options.decode == "vulkan") throw std::invalid_argument("--decode vulkan: this build has no Vulkan support (configure with -DUSE_VULKAN=ON)");
 #endif
         }
@@ -969,7 +969,7 @@ std::unique_ptr<FramePipeline> make_opencv_decode_pipeline(const Options & optio
         {
             // an explicitly requested device has to work, otherwise fall back to the CPU
             if (options.vk_device >= 0) throw;
-            std::fprintf(stderr, "trdrop-pp: Vulkan not available (%s), using the CPU\n", e.what());
+            std::fprintf(stderr, "fresniff: Vulkan not available (%s), using the CPU\n", e.what());
         }
     }
 #endif
@@ -979,7 +979,7 @@ std::unique_ptr<FramePipeline> make_opencv_decode_pipeline(const Options & optio
 
 std::unique_ptr<FramePipeline> make_pipeline(const Options & options)
 {
-#ifdef TRDROP_MEDIACODEC_VULKAN
+#ifdef FRESNIFF_MEDIACODEC_VULKAN
     // Android: hardware decoding and analysis on the GPU if the device and the videos allow it
     if (options.decode == "vulkan") return make_mediacodec_vulkan_pipeline(options.inputs);
     if (options.decode == "auto" && options.use_vulkan)
@@ -990,7 +990,7 @@ std::unique_ptr<FramePipeline> make_pipeline(const Options & options)
         }
         catch (const std::exception & e)
         {
-            if (!options.quiet) std::fprintf(stderr, "trdrop-pp: analyzing on the CPU (%s)\n", e.what());
+            if (!options.quiet) std::fprintf(stderr, "fresniff: analyzing on the CPU (%s)\n", e.what());
         }
     }
 #endif
@@ -1003,12 +1003,12 @@ std::unique_ptr<FramePipeline> make_pipeline(const Options & options)
     if (options.decode == "auto" && options.use_vulkan)
     {
         auto note = [&](const std::string & what, const std::string & why) {
-#ifdef TRDROP_MEDIACODEC_VULKAN
+#ifdef FRESNIFF_MEDIACODEC_VULKAN
             // said above
             (void)what;
             (void)why;
 #else
-            if (!options.quiet) std::fprintf(stderr, "trdrop-pp: decoding with %s (%s)\n", what.c_str(), why.c_str());
+            if (!options.quiet) std::fprintf(stderr, "fresniff: decoding with %s (%s)\n", what.c_str(), why.c_str());
 #endif
         };
 #ifdef USE_VULKAN
@@ -1150,7 +1150,7 @@ int run(const Options & options, std::vector<std::vector<StoredValues>> * export
         if (targets.size() != paths.size()) targets.clear();
         if (targets.empty() && !reason.empty() && !options.quiet)
         {
-            std::fprintf(stderr, "trdrop-pp: drawing the %s on the CPU (%s)\n", paths.size() > 1 ? "videos" : !motion_path.empty() ? "motion video" : "resolution video"
+            std::fprintf(stderr, "fresniff: drawing the %s on the CPU (%s)\n", paths.size() > 1 ? "videos" : !motion_path.empty() ? "motion video" : "resolution video"
                        , reason.c_str());
         }
         size_t next_target = 0;
@@ -1608,10 +1608,10 @@ int run_passes(const Options & options)
 }
 
 } // namespace
-} // namespace trdrop
+} // namespace fresniff
 
-#ifdef TRDROP_LIBRARY
-int trdrop_run(int argc, char ** argv, const std::function<bool(long long, double)> & progress)
+#ifdef FRESNIFF_LIBRARY
+int fresniff_run(int argc, char ** argv, const std::function<bool(long long, double)> & progress)
 #else
 int main(int argc, char ** argv)
 #endif
@@ -1623,21 +1623,21 @@ int main(int argc, char ** argv)
     cv::utils::logging::setLogLevel(cv::utils::logging::LOG_LEVEL_ERROR);
     try
     {
-        trdrop::Options options;
-        if (!trdrop::parse_arguments(argc, argv, options)) return 0;
-#ifdef TRDROP_LIBRARY
+        fresniff::Options options;
+        if (!fresniff::parse_arguments(argc, argv, options)) return 0;
+#ifdef FRESNIFF_LIBRARY
         options.progress = progress;
 #endif
-        return trdrop::run_passes(options);
+        return fresniff::run_passes(options);
     }
     catch (const std::invalid_argument & e)
     {
-        std::fprintf(stderr, "trdrop-pp: %s\n", e.what());
+        std::fprintf(stderr, "fresniff: %s\n", e.what());
         return 2;
     }
     catch (const std::exception & e)
     {
-        std::fprintf(stderr, "\ntrdrop-pp: error: %s\n", e.what());
+        std::fprintf(stderr, "\nfresniff: error: %s\n", e.what());
         return 1;
     }
 }

@@ -1,4 +1,4 @@
-package io.github.swung0x48.trdrop
+package io.github.swung0x48.fresniff
 
 import android.content.ContentValues
 import android.content.Intent
@@ -25,9 +25,9 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.card.MaterialCardView
-import io.github.swung0x48.trdrop.charts.ChartData
-import io.github.swung0x48.trdrop.charts.ChartView
-import io.github.swung0x48.trdrop.charts.Charts
+import io.github.swung0x48.fresniff.charts.ChartData
+import io.github.swung0x48.fresniff.charts.ChartView
+import io.github.swung0x48.fresniff.charts.Charts
 import java.io.File
 
 /** The result of an analysis: the numbers of the summary, the charts and the motion video. */
@@ -292,7 +292,7 @@ class ResultActivity : AppCompatActivity() {
         val values = ContentValues().apply {
             put(MediaStore.Video.Media.DISPLAY_NAME, name)
             put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
-            put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/trdrop")
+            put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/fresniff")
         }
         Thread {
             val saved = try {

@@ -1,4 +1,4 @@
-package io.github.swung0x48.trdrop
+package io.github.swung0x48.fresniff
 
 import android.content.Context
 import android.net.Uri
@@ -17,7 +17,7 @@ data class AnalysisRequest(
     val arrowScale: Double = 1.0,
     /** where the analysis runs: auto, vulkan (on the GPU) or ffmpeg (on the CPU) */
     val decode: String = "auto",
-    /** more arguments for trdrop-pp, for tests */
+    /** more arguments for fresniff, for tests */
     val extraArguments: List<String> = emptyList(),
 )
 
@@ -98,7 +98,7 @@ object AnalysisRunner {
                     !cancelled.get()
                 }
             } catch (e: Throwable) {
-                analysis.log.appendText("\ntrdrop-pp: error: ${e.message ?: e.javaClass.simpleName}\n")
+                analysis.log.appendText("\nfresniff: error: ${e.message ?: e.javaClass.simpleName}\n")
             } finally {
                 try {
                     descriptor?.close()
@@ -120,7 +120,7 @@ object AnalysisRunner {
                 running = false
                 listener?.onFinished(analysis, exitCode)
             }
-        }, "trdrop-analysis").start()
+        }, "fresniff-analysis").start()
         return true
     }
 }

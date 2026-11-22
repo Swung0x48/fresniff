@@ -1,11 +1,11 @@
 ---
-name: trdrop-pp
-description: Analyze captured game or screen video with trdrop++ (the `trdrop-pp` command) - the real framerate, frametimes, duplicate frames and frame tears of a recording, and with `--motion` how evenly the animation advances (animation error, perceived smoothness). Use this skill whenever the user wants to measure or compare the framerate, frame pacing, stutter, judder, smoothness or tearing of a video file (capture card, OBS, console or PC capture; .mkv / .mp4 / .avi), asks whether a game "really" runs at N fps or whether frame generation (DLSS / FSR / ...) output is smooth, wants framerate / frametime / smoothness charts or a motion vector overlay made from a video, or mentions trdrop, trdrop++ or trdrop-pp - even if they don't name the tool.
+name: fresniff
+description: Analyze captured game or screen video with fresniff (the `fresniff` command, formerly trdrop++ / `trdrop-pp`) - the real framerate, frametimes, duplicate frames and frame tears of a recording, and with `--motion` how evenly the animation advances (animation error, perceived smoothness). Use this skill whenever the user wants to measure or compare the framerate, frame pacing, stutter, judder, smoothness or tearing of a video file (capture card, OBS, console or PC capture; .mkv / .mp4 / .avi), asks whether a game "really" runs at N fps or whether frame generation (DLSS / FSR / ...) output is smooth, wants framerate / frametime / smoothness charts or a motion vector overlay made from a video, or mentions fresniff, trdrop, trdrop++ or trdrop-pp - even if they don't name the tool.
 ---
 
-# trdrop++
+# fresniff
 
-trdrop++ looks at a recording of a game (or of any screen) frame by frame and reports what the recording
+fresniff looks at a recording of a game (or of any screen) frame by frame and reports what the recording
 really shows, independent of what an on-screen counter claims:
 
 | question | what answers it |
@@ -22,15 +22,15 @@ looks like 48 fps. Only `--motion` sees that, so use it unless the user only wan
 
 ## Find the program and the scripts
 
-1. `trdrop-pp` (Windows: `trdrop-pp.exe`) on the `PATH`.
+1. `fresniff` (Windows: `fresniff.exe`) on the `PATH`.
 2. Otherwise relative to this skill's folder. In an installed package the layout is
-   `bin/`, `scripts/`, `skills/trdrop-pp/` - so the program is `../../bin/trdrop-pp` and the Python scripts
+   `bin/`, `scripts/`, `skills/fresniff/` - so the program is `../../bin/fresniff` and the Python scripts
    are in `../../scripts/`. (Linux / macOS install: the scripts are in `../../scripts/` too, the program is in
    `<prefix>/bin`.) In a source checkout the scripts are in `../../scripts/` and the program is in the build
    folder.
-3. If neither exists, ask the user where trdrop++ is installed instead of searching the disk.
+3. If neither exists, ask the user where fresniff is installed instead of searching the disk.
 
-Check with `trdrop-pp --version`. `trdrop-pp --help` lists every option and CSV column and is the
+Check with `fresniff --version`. `fresniff --help` lists every option and CSV column and is the
 authority if this text and the program disagree.
 
 The plot scripts need Python with matplotlib (`python -m pip install -r <scripts>/requirements.txt`).
@@ -38,7 +38,7 @@ The plot scripts need Python with matplotlib (`python -m pip install -r <scripts
 ## Run an analysis
 
 ```
-trdrop-pp <video> --motion -o <name>.csv 2> <name>.log
+fresniff <video> --motion -o <name>.csv 2> <name>.log
 ```
 
 - The per frame data goes to the CSV. Without `-o` it goes to stdout, which floods the terminal.
@@ -109,7 +109,7 @@ python <scripts>/frametime_histogram.py <name>.csv --percent -o <name>_frametime
 ## Show what was measured
 
 ```
-trdrop-pp <video> --motion-video <name>_motion.mp4 -o <name>.csv 2> <name>.log
+fresniff <video> --motion-video <name>_motion.mp4 -o <name>.csv 2> <name>.log
 ```
 
 `--resolution-video <name>_resolution.mp4` (implies `--resolution`) does the same for the render resolution:
@@ -127,7 +127,7 @@ video's own resolution (larger file, same analysis). Use it when the user wants 
 see what was measured, or to understand why a stretch could not be measured. `--arrow-scale 8` for slow
 motion, where the arrows would only be a pixel or two long.
 
-It needs nothing but trdrop++ itself and doesn't change the numbers. With Vulkan Video decoding (the
+It needs nothing but fresniff itself and doesn't change the numbers. With Vulkan Video decoding (the
 default) the video is drawn and encoded on the GPU and costs next to nothing; the `v1 motion video:` line
 says `drawn on the GPU` then. If it says `drawn on the CPU` (other decoders, or a GPU that can't encode
 H.264 with Vulkan) the run takes two to three times as long - leave the option off there when only the
@@ -165,7 +165,7 @@ number came from when several were analyzed.
 A capture with its own clock (OBS and similar programs, a variable refresh rate output recorded at a fixed
 rate) records some pictures an interval late and loses others. In the recording that looks like a repeated
 picture, later a step twice as long, and animation errors of exactly one interval (8.3 ms at 120 fps,
-16.7 ms at 60 fps) in both directions - although the game was on time. trdrop++ prints a `note:` after the
+16.7 ms at 60 fps) in both directions - although the game was on time. fresniff prints a `note:` after the
 motion line when it sees many of those.
 
 `--async-capture` (implies `--motion`) reads such a recording as what the game showed: display times count
@@ -193,7 +193,7 @@ game then reads 29 / 31 fps (perceived 29.5 / 30.5) for 2 - 5 seconds, every 16.
 Use:
 
 ```
-trdrop-pp <video> --motion --ignore-clock-skew -o <name>.csv 2> <name>.log
+fresniff <video> --motion --ignore-clock-skew -o <name>.csv 2> <name>.log
 python <scripts>/smoothness.py <name>.csv --fps 60 -o <name>_smoothness.png
 ```
 

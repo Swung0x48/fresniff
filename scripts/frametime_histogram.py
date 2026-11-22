@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Plots a histogram of the frametimes of every video from a trdrop++ CSV.
+"""Plots a histogram of the frametimes of every video from a fresniff CSV.
 
 Every new frame contributes one sample: the time the previous frame was shown
 (vN_frametime_ms at the rows where vN_diff > 0).
 
     python frametime_histogram.py analysis.csv
-    trdrop-pp capture.avi | python frametime_histogram.py --percent -o frametimes.png
+    fresniff capture.avi | python frametime_histogram.py --percent -o frametimes.png
 """
 
 import argparse
 import math
 
-import trdrop_csv
+import fresniff_csv
 
 # frametimes are multiples of 1 / recorded fps, so with few distinct values every value gets its own bar
 MAX_DISCRETE_VALUES = 40
@@ -35,16 +35,16 @@ def percentile(sorted_values, p):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Plot a frametime histogram from a trdrop++ CSV.")
-    trdrop_csv.add_common_arguments(parser)
+    parser = argparse.ArgumentParser(description="Plot a frametime histogram from a fresniff CSV.")
+    fresniff_csv.add_common_arguments(parser)
     parser.add_argument("--bins", type=int, default=None,
                         help="number of bins (default: one bar per distinct frametime if there are few, else 50)")
     parser.add_argument("--percent", action="store_true", help="show the share of frames instead of the count")
     parser.add_argument("--log", action="store_true", help="logarithmic y axis")
     args = parser.parse_args()
 
-    analysis = trdrop_csv.read_analysis(args.csv, args.labels)
-    trdrop_csv.setup_matplotlib(args)
+    analysis = fresniff_csv.read_analysis(args.csv, args.labels)
+    fresniff_csv.setup_matplotlib(args)
     import matplotlib.pyplot as plt
 
     datasets = [frametime_samples(video) for video in analysis.videos]
@@ -105,7 +105,7 @@ def main():
         axes[-1].set_xticklabels([f"{value:g}" for value in distinct], rotation=45 if len(distinct) > 12 else 0)
     axes[-1].set_xlabel("frametime (ms)")
     figure.suptitle(args.title or "Frametime distribution")
-    trdrop_csv.finish_plot(figure, args)
+    fresniff_csv.finish_plot(figure, args)
 
 
 if __name__ == "__main__":

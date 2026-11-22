@@ -14,7 +14,7 @@ extern "C" {
 #include <libavutil/pixdesc.h>
 }
 
-namespace trdrop::ffmpeg {
+namespace fresniff::ffmpeg {
 
 namespace {
 
@@ -330,4 +330,4 @@ bool VideoDecoder::lossy() const
 
 std::string VideoDecoder::codec_name() const { return _codec && _codec->codec ? _codec->codec->name : "unknown"; }
 
-} // namespace trdrop::ffmpeg
+} // namespace fresniff::ffmpeg

@@ -4,7 +4,7 @@
 
 #include "osd_font_data.h"
 
-namespace trdrop {
+namespace fresniff {
 
 const uint8_t kLeagueSpartanBoldTtf[] = {
     0x00, 0x01, 0x00, 0x00, 0x00, 0x12, 0x01, 0x00, 0x00, 0x04, 0x00, 0x20, 0x44, 0x53, 0x49, 0x47,
@@ -11039,4 +11039,4 @@ const uint32_t kNotoSansScCodepoints[] = {
 };
 const size_t kNotoSansScCodepointCount = sizeof(kNotoSansScCodepoints) / sizeof(kNotoSansScCodepoints[0]);
 
-} // namespace trdrop
+} // namespace fresniff

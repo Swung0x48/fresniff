@@ -1,6 +1,6 @@
-<img src="docs/icon.svg" alt="trdrop++ icon" width="96" align="left">
+<img src="docs/icon.svg" alt="fresniff icon" width="96" align="left">
 
-# trdrop++
+# fresniff
 
 Analyzes captured game video:
 
@@ -18,12 +18,12 @@ Analyzes captured game video:
 
 The per frame data is written as CSV, a summary goes to stderr, and [Python scripts](#plotting) plot it.
 Optionally the analysis runs on the GPU (Vulkan), including the decoding of HEVC / H.264 recordings.
-The program is called `trdrop-pp`: `pp` is the `++`, which file names and URLs don't handle well.
+fresniff was called trdrop++ (`trdrop-pp`) before.
 
 ## Usage
 
 ```
-trdrop-pp [options] <video> [<video> [<video>]]
+fresniff [options] <video> [<video> [<video>]]
 ```
 
 | option | description |
@@ -63,7 +63,7 @@ set per video (`--pixel-diff`, `--tolerance-pct`, `--keyframe-tolerance`, `--dis
 Only the CSV goes to stdout, so it can be piped into the plot scripts.
 
 ```
-trdrop-pp capture.mkv -o capture.csv
+fresniff capture.mkv -o capture.csv
 v1: effective 29.87 fps | new 119, duplicate 120, torn 0 (0 tears) | fps avg 29.99 min 29.00 max 31.00 | frametime avg 33.52 ms max 50.00 ms
 ```
 
@@ -103,7 +103,7 @@ The framerate only counts new frames. `--motion` also measures how evenly the an
 motion it can track: a moving camera, or objects moving in a part of the picture.
 
 ```
-trdrop-pp capture.mkv --motion -o capture.csv
+fresniff capture.mkv --motion -o capture.csv
 python scripts/smoothness.py capture.csv --fps 60 -o smoothness.png
 ```
 
@@ -207,7 +207,7 @@ output frame from many rendered frames, so the render resolution can't be read f
    at 33%, 2 at 50%).
 
 ```
-trdrop-pp capture.mkv --resolution -o capture.csv
+fresniff capture.mkv --resolution -o capture.csv
 v1 resolution: candidate 1: 1280x720 (33.3% of 3840x2160) - high confidence: the scale of the pixel grid that fits the pan
 v1 resolution: candidate 2: 2560x1440 (66.7% of 3840x2160) - low confidence: the other scale of that pixel grid, the pan speaks against it
 ```
@@ -243,7 +243,7 @@ areas, the growing charts and the current candidates drawn on it.
 | `resolution.py` | the file of `--resolution-data` |
 
 ```
-trdrop-pp a.avi b.avi | python scripts/frametime_histogram.py --labels A,B --percent -o frametimes.png
+fresniff a.avi b.avi | python scripts/frametime_histogram.py --labels A,B --percent -o frametimes.png
 ```
 
 Common options: `--labels a,b,c`, `--title`, `--fps` (x axis in seconds), `-o file.png` (no window needed).
@@ -283,7 +283,7 @@ On Windows this gives a folder that runs on another PC: `bin/` (the program and 
 `-DUSE_VULKAN=ON` adds a Vulkan compute backend for the per pixel work. It needs the Vulkan headers and `glslc`
 (Vulkan SDK, or `apt install libvulkan-dev glslc`). The results are bit-exact with the CPU path. Without a
 Vulkan driver the program falls back to the CPU; `--no-vk` forces the CPU.
-`TRDROP_VK_VALIDATION=1` enables the validation layer.
+`FRESNIFF_VK_VALIDATION=1` enables the validation layer.
 
 ### FFmpeg / Vulkan Video (GPU decoding)
 
@@ -310,19 +310,19 @@ GPU where the phone allows it. See [android/README.md](android/README.md).
 
 ## Agent skill
 
-`skills/trdrop-pp/` is a skill for AI coding agents (Claude Code and others that read `SKILL.md`). It covers
+`skills/fresniff/` is a skill for AI coding agents (Claude Code and others that read `SKILL.md`). It covers
 how to run an analysis, which options fit which recording, and how to read and report the results. To use
-it, copy the folder into the agent's skills folder and put `trdrop-pp` on the `PATH`.
+it, copy the folder into the agent's skills folder and put `fresniff` on the `PATH`.
 
 ## Tests
 
-`trdrop_make_fixtures <dir>` (built by default) writes lossless test videos with known answers: 30 fps in
+`fresniff_make_fixtures <dir>` (built by default) writes lossless test videos with known answers: 30 fps in
 60, stutter, tears, and for `--motion` even, uneven, frozen, zooming and partly moving pans.
 `tools/make_ball_videos.py` writes further motion fixtures.
 
 ```
-build/trdrop_make_fixtures test-out/fixtures
-build/trdrop-pp test-out/fixtures/motion_uneven.avi --motion -o motion.csv
+build/fresniff_make_fixtures test-out/fixtures
+build/fresniff test-out/fixtures/motion_uneven.avi --motion -o motion.csv
 ```
 
 ## License

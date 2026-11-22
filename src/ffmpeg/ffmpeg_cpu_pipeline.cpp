@@ -20,7 +20,7 @@ extern "C" {
 #include "ffmpeg/ffmpeg_decoder.h"
 #include "ffmpeg/yuv_picture.h"
 
-namespace trdrop {
+namespace fresniff {
 
 namespace {
 
@@ -308,4 +308,4 @@ DecoderChoice choose_decoder(const std::vector<std::string> & paths, bool vulkan
     return { "ffmpeg", vulkan_available ? no_vulkan : "this build has no Vulkan" };
 }
 
-} // namespace trdrop
+} // namespace fresniff

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
-# trdrop++, spelled trdrop-pp where a "+" is unwelcome: project, target and file names
-project(trdrop-pp VERSION 1.1.1 DESCRIPTION "trdrop++ - raw video analysis (framerate, frametime and tear detection)" LANGUAGES CXX)
+# fresniff: framerate, frametime, tears, motion and render resolution of captured video
+project(fresniff VERSION 1.1.1 DESCRIPTION "fresniff - raw video analysis (framerate, frametime, tears, motion and render resolution)" LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -10,8 +10,8 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
 endif()
 
-option(TRDROP_BUILD_TOOLS "Build the test fixture generator" ON)
-option(TRDROP_INSTALL_RUNTIME "Windows: install the DLLs the program needs (OpenCV, FFmpeg, MSVC runtime) next to it" ON)
+option(FRESNIFF_BUILD_TOOLS "Build the test fixture generator" ON)
+option(FRESNIFF_INSTALL_RUNTIME "Windows: install the DLLs the program needs (OpenCV, FFmpeg, MSVC runtime) next to it" ON)
 option(USE_VULKAN "Build the Vulkan (GPU) accelerated backend (needs the Vulkan headers and glslc)" OFF)
 option(USE_FFMPEG "Decode with FFmpeg directly, with USE_VULKAN on the GPU via Vulkan Video (needs FFmpeg >= 8.0)" OFF)
 set(FFMPEG_DIR "" CACHE PATH "FFmpeg development files (include/, lib/, bin/), otherwise pkg-config is used")
@@ -22,20 +22,20 @@ find_package(OpenCV REQUIRED COMPONENTS core imgproc videoio video)
 # (bin/, scripts/, skills/, licenses/, README.md); elsewhere the usual prefix layout.
 include(GNUInstallDirs)
 if(WIN32)
-    set(TRDROP_INSTALL_BINDIR bin)
-    set(TRDROP_INSTALL_SCRIPTDIR scripts)
-    set(TRDROP_INSTALL_SKILLDIR skills)
-    set(TRDROP_INSTALL_DOCDIR .)
-    set(TRDROP_INSTALL_LICENSEDIR licenses)
+    set(FRESNIFF_INSTALL_BINDIR bin)
+    set(FRESNIFF_INSTALL_SCRIPTDIR scripts)
+    set(FRESNIFF_INSTALL_SKILLDIR skills)
+    set(FRESNIFF_INSTALL_DOCDIR .)
+    set(FRESNIFF_INSTALL_LICENSEDIR licenses)
 else()
-    set(TRDROP_INSTALL_BINDIR "${CMAKE_INSTALL_BINDIR}")
-    set(TRDROP_INSTALL_SCRIPTDIR "${CMAKE_INSTALL_DATADIR}/trdrop-pp/scripts")
-    set(TRDROP_INSTALL_SKILLDIR "${CMAKE_INSTALL_DATADIR}/trdrop-pp/skills")
-    set(TRDROP_INSTALL_DOCDIR "${CMAKE_INSTALL_DOCDIR}")
-    set(TRDROP_INSTALL_LICENSEDIR "${CMAKE_INSTALL_DOCDIR}/licenses")
+    set(FRESNIFF_INSTALL_BINDIR "${CMAKE_INSTALL_BINDIR}")
+    set(FRESNIFF_INSTALL_SCRIPTDIR "${CMAKE_INSTALL_DATADIR}/fresniff/scripts")
+    set(FRESNIFF_INSTALL_SKILLDIR "${CMAKE_INSTALL_DATADIR}/fresniff/skills")
+    set(FRESNIFF_INSTALL_DOCDIR "${CMAKE_INSTALL_DOCDIR}")
+    set(FRESNIFF_INSTALL_LICENSEDIR "${CMAKE_INSTALL_DOCDIR}/licenses")
 endif()
 
-function(trdrop_warnings target)
+function(fresniff_warnings target)
     if(MSVC)
         target_compile_options(${target} PRIVATE /W4 /utf-8 /permissive-)
         target_compile_definitions(${target} PRIVATE _CRT_SECURE_NO_WARNINGS NOMINMAX)
@@ -44,7 +44,7 @@ function(trdrop_warnings target)
     endif()
 endfunction()
 
-add_executable(trdrop-pp
+add_executable(fresniff
     src/main.cpp
     src/video_sources.cpp
     src/frame_analyzer.cpp
@@ -59,12 +59,12 @@ add_executable(trdrop-pp
     src/resolution_video.cpp
     src/video_writer.cpp
 )
-target_include_directories(trdrop-pp PRIVATE src third_party)
-target_link_libraries(trdrop-pp PRIVATE ${OpenCV_LIBS})
-trdrop_warnings(trdrop-pp)
+target_include_directories(fresniff PRIVATE src third_party)
+target_link_libraries(fresniff PRIVATE ${OpenCV_LIBS})
+fresniff_warnings(fresniff)
 if(MSVC)
     # UTF-8 process code page: non-ASCII file names on the command line
-    target_sources(trdrop-pp PRIVATE src/windows/trdrop-pp.manifest)
+    target_sources(fresniff PRIVATE src/windows/fresniff.manifest)
 endif()
 
 if(USE_VULKAN)
@@ -80,7 +80,7 @@ if(USE_VULKAN)
 
     # compute shaders are embedded as SPIR-V (<name>.spv.inc)
     set(_shader_dir "${CMAKE_CURRENT_BINARY_DIR}/shaders")
-    function(trdrop_shader name out_var)
+    function(fresniff_shader name out_var)
         set(_src "${CMAKE_CURRENT_SOURCE_DIR}/src/vulkan/${name}.comp")
         set(_inc "${_shader_dir}/${name}.spv.inc")
         add_custom_command(
@@ -92,18 +92,18 @@ if(USE_VULKAN)
             VERBATIM)
         set(${out_var} "${_inc}" PARENT_SCOPE)
     endfunction()
-    trdrop_shader(row_diff _shader_inc)
+    fresniff_shader(row_diff _shader_inc)
 
-    target_sources(trdrop-pp PRIVATE src/vulkan/vk_diff_engine.cpp "${_shader_inc}")
-    target_include_directories(trdrop-pp PRIVATE "${_shader_dir}")
-    target_compile_definitions(trdrop-pp PRIVATE USE_VULKAN=1)
+    target_sources(fresniff PRIVATE src/vulkan/vk_diff_engine.cpp "${_shader_inc}")
+    target_include_directories(fresniff PRIVATE "${_shader_dir}")
+    target_compile_definitions(fresniff PRIVATE USE_VULKAN=1)
     if(TARGET Vulkan::Headers)
-        target_link_libraries(trdrop-pp PRIVATE Vulkan::Headers)
+        target_link_libraries(fresniff PRIVATE Vulkan::Headers)
     else()
-        target_include_directories(trdrop-pp PRIVATE ${Vulkan_INCLUDE_DIRS})
+        target_include_directories(fresniff PRIVATE ${Vulkan_INCLUDE_DIRS})
     endif()
-    target_link_libraries(trdrop-pp PRIVATE ${CMAKE_DL_LIBS})
-    message(STATUS "trdrop++: Vulkan backend enabled (glslc: ${Vulkan_GLSLC_EXECUTABLE})")
+    target_link_libraries(fresniff PRIVATE ${CMAKE_DL_LIBS})
+    message(STATUS "fresniff: Vulkan backend enabled (glslc: ${Vulkan_GLSLC_EXECUTABLE})")
 endif()
 
 if(USE_FFMPEG)
@@ -122,41 +122,41 @@ if(USE_FFMPEG)
         if(NOT FFMPEG_INCLUDE_DIR)
             message(FATAL_ERROR "USE_FFMPEG: FFmpeg headers not found in ${FFMPEG_DIR}/include")
         endif()
-        target_include_directories(trdrop-pp SYSTEM PRIVATE "${FFMPEG_INCLUDE_DIR}")
-        target_link_libraries(trdrop-pp PRIVATE ${FFMPEG_LIBRARIES})
+        target_include_directories(fresniff SYSTEM PRIVATE "${FFMPEG_INCLUDE_DIR}")
+        target_link_libraries(fresniff PRIVATE ${FFMPEG_LIBRARIES})
     else()
         find_package(PkgConfig REQUIRED)
         pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET libavformat>=62 libavcodec>=62 libavutil>=60)
-        target_link_libraries(trdrop-pp PRIVATE PkgConfig::FFMPEG)
+        target_link_libraries(fresniff PRIVATE PkgConfig::FFMPEG)
     endif()
 
-    target_sources(trdrop-pp PRIVATE src/ffmpeg/ffmpeg_decoder.cpp src/ffmpeg/ffmpeg_cpu_pipeline.cpp src/ffmpeg/ffmpeg_writer.cpp
+    target_sources(fresniff PRIVATE src/ffmpeg/ffmpeg_decoder.cpp src/ffmpeg/ffmpeg_cpu_pipeline.cpp src/ffmpeg/ffmpeg_writer.cpp
                                      src/ffmpeg/yuv_picture.cpp)
-    target_compile_definitions(trdrop-pp PRIVATE USE_FFMPEG=1)
+    target_compile_definitions(fresniff PRIVATE USE_FFMPEG=1)
     if(USE_VULKAN)
-        trdrop_shader(yuv_diff _yuv_shader_inc)
-        trdrop_shader(motion_pyramid _pyramid_shader_inc)
-        trdrop_shader(motion_lk _lk_shader_inc)
-        trdrop_shader(motion_select _select_shader_inc)
-        trdrop_shader(motion_texture _texture_shader_inc)
-        trdrop_shader(overlay_base _overlay_base_shader_inc)
-        trdrop_shader(overlay_blur _overlay_blur_shader_inc)
-        trdrop_shader(overlay_draw _overlay_draw_shader_inc)
-        trdrop_shader(resolution_lattice _resolution_lattice_shader_inc)
-        trdrop_shader(resolution_edge _resolution_edge_shader_inc)
-        trdrop_shader(resolution_stairs _resolution_stairs_shader_inc)
-        target_sources(trdrop-pp PRIVATE src/vulkan/vk_video_pipeline.cpp "${_yuv_shader_inc}" "${_pyramid_shader_inc}" "${_lk_shader_inc}"
+        fresniff_shader(yuv_diff _yuv_shader_inc)
+        fresniff_shader(motion_pyramid _pyramid_shader_inc)
+        fresniff_shader(motion_lk _lk_shader_inc)
+        fresniff_shader(motion_select _select_shader_inc)
+        fresniff_shader(motion_texture _texture_shader_inc)
+        fresniff_shader(overlay_base _overlay_base_shader_inc)
+        fresniff_shader(overlay_blur _overlay_blur_shader_inc)
+        fresniff_shader(overlay_draw _overlay_draw_shader_inc)
+        fresniff_shader(resolution_lattice _resolution_lattice_shader_inc)
+        fresniff_shader(resolution_edge _resolution_edge_shader_inc)
+        fresniff_shader(resolution_stairs _resolution_stairs_shader_inc)
+        target_sources(fresniff PRIVATE src/vulkan/vk_video_pipeline.cpp "${_yuv_shader_inc}" "${_pyramid_shader_inc}" "${_lk_shader_inc}"
                                          "${_select_shader_inc}" "${_texture_shader_inc}"
                                          "${_overlay_base_shader_inc}" "${_overlay_blur_shader_inc}" "${_overlay_draw_shader_inc}"
                                          "${_resolution_lattice_shader_inc}" "${_resolution_edge_shader_inc}"
                                          "${_resolution_stairs_shader_inc}" src/gpu_memory.cpp)
         if(WIN32)
             # the video memory all programs use (performance counters), see gpu_memory.h
-            target_link_libraries(trdrop-pp PRIVATE pdh)
+            target_link_libraries(fresniff PRIVATE pdh)
         endif()
-        message(STATUS "trdrop++: FFmpeg decoding enabled (with Vulkan Video)")
+        message(STATUS "fresniff: FFmpeg decoding enabled (with Vulkan Video)")
     else()
-        message(STATUS "trdrop++: FFmpeg decoding enabled (CPU only, Vulkan Video needs USE_VULKAN)")
+        message(STATUS "fresniff: FFmpeg decoding enabled (CPU only, Vulkan Video needs USE_VULKAN)")
     endif()
 
     # Windows: copy the FFmpeg DLLs next to the executable
@@ -165,24 +165,24 @@ if(USE_FFMPEG)
         file(GLOB _ffmpeg_dlls "${FFMPEG_DIR}/bin/avformat*.dll" "${FFMPEG_DIR}/bin/avcodec*.dll"
                                "${FFMPEG_DIR}/bin/avutil*.dll" "${FFMPEG_DIR}/bin/swresample*.dll")
         if(_ffmpeg_dlls)
-            add_custom_command(TARGET trdrop-pp POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different ${_ffmpeg_dlls} "$<TARGET_FILE_DIR:trdrop-pp>"
+            add_custom_command(TARGET fresniff POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different ${_ffmpeg_dlls} "$<TARGET_FILE_DIR:fresniff>"
                 COMMENT "Copying FFmpeg runtime DLLs")
-            if(TRDROP_INSTALL_RUNTIME)
-                install(FILES ${_ffmpeg_dlls} DESTINATION "${TRDROP_INSTALL_BINDIR}")
+            if(FRESNIFF_INSTALL_RUNTIME)
+                install(FILES ${_ffmpeg_dlls} DESTINATION "${FRESNIFF_INSTALL_BINDIR}")
                 # the DLLs are LGPL: their license goes with them
                 if(EXISTS "${FFMPEG_DIR}/LICENSE.txt")
-                    install(FILES "${FFMPEG_DIR}/LICENSE.txt" DESTINATION "${TRDROP_INSTALL_LICENSEDIR}" RENAME FFmpeg-LICENSE.txt)
+                    install(FILES "${FFMPEG_DIR}/LICENSE.txt" DESTINATION "${FRESNIFF_INSTALL_LICENSEDIR}" RENAME FFmpeg-LICENSE.txt)
                 endif()
             endif()
         endif()
     endif()
 endif()
 
-if(TRDROP_BUILD_TOOLS)
-    add_executable(trdrop_make_fixtures tools/make_fixtures.cpp)
-    target_link_libraries(trdrop_make_fixtures PRIVATE ${OpenCV_LIBS})
-    trdrop_warnings(trdrop_make_fixtures)
+if(FRESNIFF_BUILD_TOOLS)
+    add_executable(fresniff_make_fixtures tools/make_fixtures.cpp)
+    target_link_libraries(fresniff_make_fixtures PRIVATE ${OpenCV_LIBS})
+    fresniff_warnings(fresniff_make_fixtures)
 endif()
 
 # Windows: copy the OpenCV DLLs (incl. the dynamically loaded ffmpeg plugin) next to the executable
@@ -208,18 +208,18 @@ if(WIN32)
         list(APPEND _ocv_dlls ${_found})
     endforeach()
     if(_ocv_dlls)
-        add_custom_command(TARGET trdrop-pp POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${_ocv_dlls} "$<TARGET_FILE_DIR:trdrop-pp>"
+        add_custom_command(TARGET fresniff POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${_ocv_dlls} "$<TARGET_FILE_DIR:fresniff>"
             COMMENT "Copying OpenCV runtime DLLs")
-        if(TRDROP_INSTALL_RUNTIME)
-            install(FILES ${_ocv_dlls} DESTINATION "${TRDROP_INSTALL_BINDIR}")
+        if(FRESNIFF_INSTALL_RUNTIME)
+            install(FILES ${_ocv_dlls} DESTINATION "${FRESNIFF_INSTALL_BINDIR}")
             # the prebuilt Windows pack: OpenCV's license and the one of its FFmpeg plugin (opencv_videoio_ffmpeg*.dll)
             foreach(_license IN ITEMS "LICENSE|OpenCV-LICENSE.txt" "../LICENSE_FFMPEG.txt|OpenCV-FFmpeg-plugin-LICENSE.txt")
                 string(REPLACE "|" ";" _license "${_license}")
                 list(GET _license 0 _from)
                 list(GET _license 1 _to)
                 if(OpenCV_INSTALL_PATH AND EXISTS "${OpenCV_INSTALL_PATH}/${_from}")
-                    install(FILES "${OpenCV_INSTALL_PATH}/${_from}" DESTINATION "${TRDROP_INSTALL_LICENSEDIR}" RENAME "${_to}")
+                    install(FILES "${OpenCV_INSTALL_PATH}/${_from}" DESTINATION "${FRESNIFF_INSTALL_LICENSEDIR}" RENAME "${_to}")
                 endif()
             endforeach()
         endif()
@@ -228,10 +228,10 @@ endif()
 
 # ---- install: the program with what it needs to run, the Python scripts, the skills, README and licenses
 #   cmake --install <build dir> --prefix <folder>
-install(TARGETS trdrop-pp RUNTIME DESTINATION "${TRDROP_INSTALL_BINDIR}")
-if(WIN32 AND TRDROP_INSTALL_RUNTIME)
+install(TARGETS fresniff RUNTIME DESTINATION "${FRESNIFF_INSTALL_BINDIR}")
+if(WIN32 AND FRESNIFF_INSTALL_RUNTIME)
     # the MSVC runtime, so the program also starts without the Visual C++ redistributable
-    set(CMAKE_INSTALL_SYSTEM_RUNTIME_DESTINATION "${TRDROP_INSTALL_BINDIR}")
+    set(CMAKE_INSTALL_SYSTEM_RUNTIME_DESTINATION "${FRESNIFF_INSTALL_BINDIR}")
     set(CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS_NO_WARNINGS ON)
     include(InstallRequiredSystemLibraries)
     if(MSVC AND NOT CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS)
@@ -245,9 +245,9 @@ if(WIN32 AND TRDROP_INSTALL_RUNTIME)
                                     "${_redist}/${_arch}/Microsoft.VC*.CRT/concrt140.dll")
         endif()
         if(_msvc_runtime)
-            install(FILES ${_msvc_runtime} DESTINATION "${TRDROP_INSTALL_BINDIR}")
+            install(FILES ${_msvc_runtime} DESTINATION "${FRESNIFF_INSTALL_BINDIR}")
         else()
-            message(STATUS "trdrop++: MSVC runtime DLLs not found, the installed program needs the Visual C++ redistributable")
+            message(STATUS "fresniff: MSVC runtime DLLs not found, the installed program needs the Visual C++ redistributable")
         endif()
     endif()
 endif()
@@ -256,21 +256,21 @@ install(FILES
         scripts/frametime_histogram.py
         scripts/resolution.py
         scripts/smoothness.py
-        scripts/trdrop_csv.py
+        scripts/fresniff_csv.py
         scripts/requirements.txt
         tools/make_ball_videos.py
-    DESTINATION "${TRDROP_INSTALL_SCRIPTDIR}")
+    DESTINATION "${FRESNIFF_INSTALL_SCRIPTDIR}")
 # agent skills (skills/<name>/SKILL.md); they expect the scripts in ../../scripts relative to themselves
-install(DIRECTORY skills/ DESTINATION "${TRDROP_INSTALL_SKILLDIR}")
-install(FILES README.md DESTINATION "${TRDROP_INSTALL_DOCDIR}")
-install(FILES docs/icon.svg docs/motion-video.jpg docs/resolution-video.jpg DESTINATION "${TRDROP_INSTALL_DOCDIR}/docs")
-install(FILES LICENSE DESTINATION "${TRDROP_INSTALL_LICENSEDIR}" RENAME trdrop++-LICENSE.txt)
-install(FILES licenses/LeagueSpartan-OFL.txt licenses/NotoSansSC-OFL.txt licenses/stb-LICENSE.txt DESTINATION "${TRDROP_INSTALL_LICENSEDIR}")
+install(DIRECTORY skills/ DESTINATION "${FRESNIFF_INSTALL_SKILLDIR}")
+install(FILES README.md DESTINATION "${FRESNIFF_INSTALL_DOCDIR}")
+install(FILES docs/icon.svg docs/motion-video.jpg docs/resolution-video.jpg DESTINATION "${FRESNIFF_INSTALL_DOCDIR}/docs")
+install(FILES LICENSE DESTINATION "${FRESNIFF_INSTALL_LICENSEDIR}" RENAME fresniff-LICENSE.txt)
+install(FILES licenses/LeagueSpartan-OFL.txt licenses/NotoSansSC-OFL.txt licenses/stb-LICENSE.txt DESTINATION "${FRESNIFF_INSTALL_LICENSEDIR}")
 
 # ---- package: the installed folder as an archive
 #   cmake --build <build dir> --target package
-set(CPACK_PACKAGE_NAME "trdrop-pp")
-set(CPACK_PACKAGE_VENDOR "trdrop++")
+set(CPACK_PACKAGE_NAME "fresniff")
+set(CPACK_PACKAGE_VENDOR "fresniff")
 set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
 set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
 if(WIN32)

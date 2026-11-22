@@ -11,7 +11,7 @@
 #include "motion_video_target.h"
 #include "osd_font.h"
 
-namespace trdrop {
+namespace fresniff {
 
 //! what the analysis says about a frame of the motion video
 struct MotionVideoFrame {
@@ -136,4 +136,4 @@ private:
 //! the target that draws on MotionDetail::picture on the CPU and writes the file with make_video_writer
 std::unique_ptr<MotionVideoTarget> make_cpu_motion_video_target(const std::string & path, cv::Size size, double fps);
 
-} // namespace trdrop
+} // namespace fresniff

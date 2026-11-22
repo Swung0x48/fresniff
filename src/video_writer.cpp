@@ -6,7 +6,7 @@
 
 #include <opencv2/videoio.hpp>
 
-namespace trdrop {
+namespace fresniff {
 
 namespace {
 
@@ -71,4 +71,4 @@ std::unique_ptr<VideoWriter> make_video_writer(const std::string & path, int wid
 #endif
 }
 
-} // namespace trdrop
+} // namespace fresniff

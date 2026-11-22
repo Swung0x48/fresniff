@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
-"""Plots the framerate of every video over time from a trdrop++ CSV.
+"""Plots the framerate of every video over time from a fresniff CSV.
 
     python framerate.py analysis.csv
-    trdrop-pp capture.avi | python framerate.py --fps 60 -o framerate.png
+    fresniff capture.avi | python framerate.py --fps 60 -o framerate.png
 """
 
 import argparse
 import math
 
-import trdrop_csv
+import fresniff_csv
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Plot the framerate over time from a trdrop++ CSV.")
-    trdrop_csv.add_common_arguments(parser)
-    parser.add_argument("--fps", type=trdrop_csv.positive_float, default=None,
+    parser = argparse.ArgumentParser(description="Plot the framerate over time from a fresniff CSV.")
+    fresniff_csv.add_common_arguments(parser)
+    parser.add_argument("--fps", type=fresniff_csv.positive_float, default=None,
                         help="recorded framerate of the capture, shows the x axis in seconds instead of frames")
     parser.add_argument("--skip", type=int, default=None,
                         help="hide the first N frames (default: the first second if --fps is given, "
@@ -22,8 +22,8 @@ def main():
     parser.add_argument("--max-fps", type=float, default=None, help="upper limit of the y axis")
     args = parser.parse_args()
 
-    analysis = trdrop_csv.read_analysis(args.csv, args.labels)
-    trdrop_csv.setup_matplotlib(args)
+    analysis = fresniff_csv.read_analysis(args.csv, args.labels)
+    fresniff_csv.setup_matplotlib(args)
     import matplotlib.pyplot as plt
 
     skip = args.skip
@@ -54,7 +54,7 @@ def main():
     axis.grid(True, alpha=0.3)
     axis.legend(loc="lower right")
     axis.set_title(args.title or "Framerate")
-    trdrop_csv.finish_plot(figure, args)
+    fresniff_csv.finish_plot(figure, args)
 
 
 if __name__ == "__main__":

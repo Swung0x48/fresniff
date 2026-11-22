@@ -9,7 +9,7 @@
 
 #include "video_sources.h"
 
-namespace trdrop {
+namespace fresniff {
 
 double FramePipeline::progress() const
 {
@@ -179,4 +179,4 @@ std::unique_ptr<FramePipeline> make_opencv_pipeline(const std::vector<std::strin
     return std::make_unique<OpenCvPipeline>(paths, std::move(engine));
 }
 
-} // namespace trdrop
+} // namespace fresniff

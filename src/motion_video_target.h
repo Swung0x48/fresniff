@@ -8,7 +8,7 @@
 
 #include "motion.h"
 
-namespace trdrop {
+namespace fresniff {
 
 //! a line with round ends in the motion video (a dot if both ends are the same), in pixels of the picture
 struct MotionVideoSegment {
@@ -113,4 +113,4 @@ public:
     virtual void finish() = 0;
 };
 
-} // namespace trdrop
+} // namespace fresniff

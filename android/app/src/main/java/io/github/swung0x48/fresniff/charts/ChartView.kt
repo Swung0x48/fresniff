@@ -1,4 +1,4 @@
-package io.github.swung0x48.trdrop.charts
+package io.github.swung0x48.fresniff.charts
 
 import android.content.Context
 import android.graphics.Canvas
@@ -11,7 +11,7 @@ import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
 import androidx.core.content.ContextCompat
-import io.github.swung0x48.trdrop.R
+import io.github.swung0x48.fresniff.R
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor

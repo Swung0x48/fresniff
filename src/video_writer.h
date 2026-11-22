@@ -5,7 +5,7 @@
 
 #include <opencv2/core.hpp>
 
-namespace trdrop {
+namespace fresniff {
 
 //! encodes pictures into a video file
 class VideoWriter {
@@ -30,4 +30,4 @@ std::unique_ptr<VideoWriter> make_video_writer(const std::string & path, int wid
 std::unique_ptr<VideoWriter> make_ffmpeg_video_writer(const std::string & path, int width, int height, double fps);
 #endif
 
-} // namespace trdrop
+} // namespace fresniff

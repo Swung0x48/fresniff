@@ -7,7 +7,7 @@
 #include <mutex>
 #include <ostream>
 
-namespace trdrop {
+namespace fresniff {
 
 const char * const kResolutionAgeNames[kResolutionAges] = {
     "entered with this frame, outer half", "entered with this frame, inner half", "1 frame ago", "2 - 3 frames ago",
@@ -1015,7 +1015,7 @@ void ResolutionAnalyzer::write_data(std::ostream & out, const std::string & vide
         std::snprintf(text, sizeof(text), "%.6g", value);
         return std::string(text);
     };
-    out << "# trdrop++ resolution data 1\n";
+    out << "# fresniff resolution data 1\n";
     out << "# video: " << video << "\n";
     out << "# width: " << _layout.width << "\n# height: " << _layout.height << "\n# frames: " << _frames << "\n";
     out << "# grid_frames: " << _lattice_frames << "\n# grid_rows: " << _layout.lattice_rows << "\n";
@@ -1084,4 +1084,4 @@ void ResolutionAnalyzer::write_data(std::ostream & out, const std::string & vide
     }
 }
 
-} // namespace trdrop
+} // namespace fresniff

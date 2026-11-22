@@ -34,7 +34,7 @@
 #include <dlfcn.h>
 #endif
 
-namespace trdrop {
+namespace fresniff {
 
 namespace {
 
@@ -58,7 +58,7 @@ struct PushConstants {
 // ---------------------------------------------------------------------------------------------
 // loader
 
-#define TRDROP_VK_INSTANCE_FUNCTIONS(X) \
+#define FRESNIFF_VK_INSTANCE_FUNCTIONS(X) \
     X(vkDestroyInstance) \
     X(vkEnumeratePhysicalDevices) \
     X(vkGetPhysicalDeviceProperties) \
@@ -67,7 +67,7 @@ struct PushConstants {
     X(vkCreateDevice) \
     X(vkGetDeviceProcAddr)
 
-#define TRDROP_VK_DEVICE_FUNCTIONS(X) \
+#define FRESNIFF_VK_DEVICE_FUNCTIONS(X) \
     X(vkDestroyDevice) \
     X(vkGetDeviceQueue) \
     X(vkCreateBuffer) \
@@ -109,7 +109,7 @@ struct PushConstants {
     X(vkResetFences) \
     X(vkDeviceWaitIdle)
 
-#define TRDROP_VK_DECLARE(name) PFN_##name name = nullptr;
+#define FRESNIFF_VK_DECLARE(name) PFN_##name name = nullptr;
 
 struct GlobalFunctions {
     PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr = nullptr;
@@ -117,8 +117,8 @@ struct GlobalFunctions {
     PFN_vkEnumerateInstanceLayerProperties vkEnumerateInstanceLayerProperties = nullptr;
 };
 
-struct InstanceFunctions { TRDROP_VK_INSTANCE_FUNCTIONS(TRDROP_VK_DECLARE) };
-struct DeviceFunctions { TRDROP_VK_DEVICE_FUNCTIONS(TRDROP_VK_DECLARE) };
+struct InstanceFunctions { FRESNIFF_VK_INSTANCE_FUNCTIONS(FRESNIFF_VK_DECLARE) };
+struct DeviceFunctions { FRESNIFF_VK_DEVICE_FUNCTIONS(FRESNIFF_VK_DECLARE) };
 
 //! loads the Vulkan loader library once, throws if it is not installed
 const GlobalFunctions & global_functions()
@@ -199,14 +199,14 @@ public:
 
         VkApplicationInfo application {};
         application.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-        application.pApplicationName = "trdrop++";
+        application.pApplicationName = "fresniff";
         application.applicationVersion = 1;
-        application.pEngineName = "trdrop++";
+        application.pEngineName = "fresniff";
         application.apiVersion = VK_API_VERSION_1_0;
 
-        // TRDROP_VK_VALIDATION=1 enables the Khronos validation layer if it is installed (debugging)
+        // FRESNIFF_VK_VALIDATION=1 enables the Khronos validation layer if it is installed (debugging)
         std::vector<const char *> layers;
-        if (env_flag("TRDROP_VK_VALIDATION") && global.vkEnumerateInstanceLayerProperties)
+        if (env_flag("FRESNIFF_VK_VALIDATION") && global.vkEnumerateInstanceLayerProperties)
         {
             uint32_t count = 0;
             global.vkEnumerateInstanceLayerProperties(&count, nullptr);
@@ -225,11 +225,11 @@ public:
         info.ppEnabledLayerNames = layers.data();
         check(global.vkCreateInstance(&info, nullptr, &handle), "vkCreateInstance");
 
-#define TRDROP_VK_LOAD_INSTANCE(name) \
+#define FRESNIFF_VK_LOAD_INSTANCE(name) \
         fn.name = reinterpret_cast<PFN_##name>(global.vkGetInstanceProcAddr(handle, #name)); \
         if (!fn.name) throw std::runtime_error("missing Vulkan function " #name);
-        TRDROP_VK_INSTANCE_FUNCTIONS(TRDROP_VK_LOAD_INSTANCE)
-#undef TRDROP_VK_LOAD_INSTANCE
+        FRESNIFF_VK_INSTANCE_FUNCTIONS(FRESNIFF_VK_LOAD_INSTANCE)
+#undef FRESNIFF_VK_LOAD_INSTANCE
     }
 
     ~Instance()
@@ -671,11 +671,11 @@ private:
         device_info.pQueueCreateInfos = &queue_info;
         check(_instance->fn.vkCreateDevice(_physical_device, &device_info, nullptr, &_device), "vkCreateDevice");
 
-#define TRDROP_VK_LOAD_DEVICE(name) \
+#define FRESNIFF_VK_LOAD_DEVICE(name) \
         _dfn.name = reinterpret_cast<PFN_##name>(_instance->fn.vkGetDeviceProcAddr(_device, #name)); \
         if (!_dfn.name) throw std::runtime_error("missing Vulkan function " #name);
-        TRDROP_VK_DEVICE_FUNCTIONS(TRDROP_VK_LOAD_DEVICE)
-#undef TRDROP_VK_LOAD_DEVICE
+        FRESNIFF_VK_DEVICE_FUNCTIONS(FRESNIFF_VK_LOAD_DEVICE)
+#undef FRESNIFF_VK_LOAD_DEVICE
 
         _dfn.vkGetDeviceQueue(_device, _queue_family, 0, &_queue);
     }
@@ -896,4 +896,4 @@ std::unique_ptr<DiffEngine> make_vulkan_engine(int device_index, size_t video_co
     return std::make_unique<VulkanDiffEngine>(device_index, video_count);
 }
 
-} // namespace trdrop
+} // namespace fresniff

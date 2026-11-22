@@ -5,7 +5,7 @@
 #include <cstdio>
 #include <map>
 
-namespace trdrop {
+namespace fresniff {
 
 namespace {
 
@@ -322,4 +322,4 @@ std::vector<long long> clock_skew_times(const std::vector<double> & diff, const 
     return times;
 }
 
-} // namespace trdrop
+} // namespace fresniff

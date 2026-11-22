@@ -6,7 +6,7 @@
 
 #include <opencv2/core.hpp>
 
-namespace trdrop {
+namespace fresniff {
 
 enum class OsdFontWeight { Bold, Medium, NotoSansScMedium };
 
@@ -48,4 +48,4 @@ private:
 
 void draw_rounded_rect_rgba(cv::Mat & rgba_pm, float x, float y, float w, float h, float radius, const OsdColor & color);
 
-} // namespace trdrop
+} // namespace fresniff

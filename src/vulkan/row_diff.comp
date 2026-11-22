@@ -1,5 +1,5 @@
 #version 450
-// Per pixel part of the trdrop analysis, one workgroup per image row:
+// Per pixel part of the fresniff analysis, one workgroup per image row:
 //   gray = cv::cvtColor(bgr, COLOR_BGR2GRAY)            (bit exact 8-bit fixed point formula of OpenCV)
 //   row_counts[row] = count(|gray - previous_gray| > threshold)
 //
